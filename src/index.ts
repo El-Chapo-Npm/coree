@@ -22,10 +22,7 @@ export {
   recommendWallets,
   removeSignatureFromEnvelope,
 } from "./wallet";
-export type {
-  EnvelopeSignatureInput,
-  SignatureHintInput,
-} from "./wallet";
+export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
 export { XBullAdapter } from "./wallet/adapters/xbull";
@@ -91,9 +88,7 @@ export {
   nativeAsset,
   usdcAsset,
   usdtAsset,
-  usdt_assetAsset,
   eurcAsset,
-  ativeAsset,
 } from "./transaction";
 export type { SorokitMemo } from "./transaction";
 export type {
@@ -109,7 +104,11 @@ export type {
   FeeEstimateOptions,
 } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
-export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
+export {
+  buildPathPayment,
+  checkTrustlines,
+  buildBulkTrustlines,
+} from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,

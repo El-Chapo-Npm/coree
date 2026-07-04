@@ -50,9 +50,7 @@ import {
   nativeAsset,
   usdcAsset,
   usdtAsset,
-  usdt_assetAsset,
   eurcAsset,
-  ativeAsset,
   USDC_MAINNET_ISSUER,
   USDT_MAINNET_ISSUER,
   EURC_MAINNET_ISSUER,
@@ -2749,9 +2747,6 @@ describe("Asset Factories", () => {
   it("creates a native asset", () => {
     const asset = nativeAsset();
     expect(asset.isNative()).toBe(true);
-
-    const assetTypo = ativeAsset();
-    expect(assetTypo.isNative()).toBe(true);
   });
 
   it("creates a USDC asset with mainnet or custom issuer", () => {
@@ -2776,10 +2771,6 @@ describe("Asset Factories", () => {
     const customAsset = usdtAsset(customIssuer);
     expect(customAsset.getCode()).toBe("USDT");
     expect(customAsset.getIssuer()).toBe(customIssuer);
-
-    const aliasAsset = usdt_assetAsset();
-    expect(aliasAsset.getCode()).toBe("USDT");
-    expect(aliasAsset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
   });
 
   it("creates a EURC asset with mainnet or custom issuer", () => {
