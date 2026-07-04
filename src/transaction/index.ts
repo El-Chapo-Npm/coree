@@ -85,6 +85,7 @@ export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
+export { validateTransaction } from "./validateTransaction";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
@@ -112,6 +113,13 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export type {
+  ValidationIssue,
+  TransactionValidationContext,
+  CustomValidationRule,
+  ParsedOperation,
+} from "./validateTransaction";
+// Note: ValidationRules and TransactionValidationReport are re-exported below from validateTransactionXdr
 
 export {
   validateTransactionXdr,
