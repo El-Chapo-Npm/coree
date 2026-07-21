@@ -22,10 +22,7 @@ export {
   recommendWallets,
   removeSignatureFromEnvelope,
 } from "./wallet";
-export type {
-  EnvelopeSignatureInput,
-  SignatureHintInput,
-} from "./wallet";
+export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
 export { XBullAdapter } from "./wallet/adapters/xbull";
@@ -92,9 +89,7 @@ export {
   nativeAsset,
   usdcAsset,
   usdtAsset,
-  usdt_assetAsset,
   eurcAsset,
-  ativeAsset,
 } from "./transaction";
 export type { SorokitMemo } from "./transaction";
 export type {
@@ -117,7 +112,11 @@ export type {
 } from "./transaction/estimateFee";
 export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
-export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
+export {
+  buildPathPayment,
+  checkTrustlines,
+  buildBulkTrustlines,
+} from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -140,6 +139,13 @@ export type {
   TransactionStatus,
   TrustlineParams,
 } from "./transaction/types";
+export { validateTransaction } from "./transaction/validateTransaction";
+export type {
+  ValidationIssue,
+  TransactionValidationContext,
+  CustomValidationRule,
+  ParsedOperation,
+} from "./transaction/validateTransaction";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
