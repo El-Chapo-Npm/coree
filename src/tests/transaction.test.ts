@@ -9,7 +9,12 @@ import {
 } from "vitest";
 import { Asset } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
-import { estimateFee } from "../transaction/estimateFee";
+import {
+  estimateFee,
+  calculateFeeTiers,
+  fetchFeeTiers,
+  FEE_TIERS_CACHE_KEY,
+} from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
@@ -1806,6 +1811,10 @@ function fakeAccount() {
   };
 }
 
+describe("buildReverseTransaction (#45)", () => {
+  let paymentSpy: MockInstance<any[], any>;
+  let changeTrustSpy: MockInstance<any[], any>;
+  let accountMergeSpy: MockInstance<any[], any>;
 describe.skip("buildReverseTransaction (#45)", () => {
   let paymentSpy: any;
   let changeTrustSpy: any;
@@ -2488,6 +2497,145 @@ describe("custom memoValidator callback (#91)", () => {
   });
 });
 
+describe("calculateFeeTiers — tier calculation", () => {
+  it("returns BASE_FEE for all tiers when the fee array is empty", () => {
+    const tiers = calculateFeeTiers([]);
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("returns BASE_FEE for all tiers when all fees are invalid or non-positive", () => {
+    const tiers = calculateFeeTiers([0, -50, NaN, Infinity]);
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("returns the single fee for all tiers when only one fee is provided", () => {
+    const tiers = calculateFeeTiers([300]);
+    expect(tiers.economy).toBe("300");
+    expect(tiers.standard).toBe("300");
+    expect(tiers.fast).toBe("300");
+  });
+
+  it("returns the same value for all tiers when all fees are uniform", () => {
+    const tiers = calculateFeeTiers(Array(10).fill(500));
+    expect(tiers.economy).toBe("500");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("500");
+  });
+
+  it("computes 10th, 50th, and 90th percentiles from a varied fee distribution", () => {
+    // Unsorted input; sorted result: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    const fees = [500, 100, 300, 700, 900, 200, 400, 600, 800, 1000];
+    const tiers = calculateFeeTiers(fees);
+    // 10th: floor(0.10 * 10)=1 → sorted[1]=200
+    // 50th: floor(0.50 * 10)=5 → sorted[5]=600
+    // 90th: floor(0.90 * 10)=9 → sorted[9]=1000
+    expect(tiers.economy).toBe("200");
+    expect(tiers.standard).toBe("600");
+    expect(tiers.fast).toBe("1000");
+  });
+
+  it("filters out invalid values before computing percentiles", () => {
+    // Valid fees: [100, 500, 900]; invalid: [0, -1, NaN]
+    const fees = [100, 0, 500, -1, 900, NaN];
+    const tiers = calculateFeeTiers(fees);
+    // sorted valid: [100, 500, 900] (3 elements)
+    // 10th: floor(0.10 * 3)=0 → sorted[0]=100
+    // 50th: floor(0.50 * 3)=1 → sorted[1]=500
+    // 90th: floor(0.90 * 3)=2 → sorted[2]=900
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("900");
+  });
+});
+
+describe("fetchFeeTiers — caching", () => {
+  beforeEach(() => {
+    mockTransactionsCall.mockReset();
+  });
+
+  it("fetches from Horizon on cache miss and stores result in cache", async () => {
+    const cache = makeEmptyCache();
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+    });
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("900");
+    expect(mockTransactionsCall).toHaveBeenCalledOnce();
+    expect(cache.setCalls).toHaveLength(1);
+    expect(cache.setCalls[0]?.key).toBe(FEE_TIERS_CACHE_KEY);
+    expect(cache.setCalls[0]?.ttl).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+  });
+
+  it("returns cached tiers on hit without calling Horizon", async () => {
+    const cache = makeEmptyCache();
+    mockTransactionsCall.mockResolvedValue({
+      records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+    });
+
+    const first = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+    const second = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+
+    expect(first).toEqual(second);
+    // Horizon must only be called once (second call is served from cache)
+    expect(mockTransactionsCall).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to BASE_FEE for all tiers when Horizon throws", async () => {
+    mockTransactionsCall.mockRejectedValueOnce(new Error("network error"));
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("falls back to BASE_FEE for all tiers when Horizon returns no records", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({ records: [] });
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+});
+
+describe("estimateFee — fee tiers", () => {
+  beforeEach(() => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1000" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockReset();
+  });
+
+  it("includes tiers in the result when includeTiers is true", async () => {
+    // First mockTransactionsCall goes to fetchFeeTiers, second to fetchRecentMedianFee
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+      })
+      .mockResolvedValueOnce({
+        records: Array(10).fill({ fee_charged: "400" }),
+      });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { includeTiers: true },
 describe("checkTrustlines", () => {
   const horizonUrl = "https://horizon-testnet.stellar.org";
   const sourcePublicKey =
@@ -2579,6 +2727,23 @@ describe("buildBulkTrustlines", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(result.data.tiers?.economy).toBe("100");
+      expect(result.data.tiers?.standard).toBe("500");
+      expect(result.data.tiers?.fast).toBe("900");
+    }
+  });
+
+  it("omits tiers when includeTiers is not set", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: Array(10).fill({ fee_charged: "400" }),
+    });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(2);
@@ -2601,6 +2766,36 @@ describe("buildBulkTrustlines", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
+      expect(result.data.tiers).toBeUndefined();
+    }
+  });
+
+  it("uses cache for fee tiers when options.cache is provided", async () => {
+    const cache = makeEmptyCache();
+    // First call: Horizon for tiers, then Horizon for median
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+      })
+      .mockResolvedValueOnce({
+        records: Array(10).fill({ fee_charged: "400" }),
+      });
+
+    await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { includeTiers: true, cache },
+    );
+
+    // The tiers should have been stored under FEE_TIERS_CACHE_KEY
+    const cachedKey = cache.setCalls.find((c) => c.key === FEE_TIERS_CACHE_KEY);
+    expect(cachedKey).toBeDefined();
+  });
+});
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(1);
@@ -2743,17 +2938,55 @@ describe.skip("validateTransactionXdr (#99)", () => {
   });
 });
 
+describe("validateDestination", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("validates valid public key format without existence check", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST);
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.formatValid).toBe(true);
+    expect(res.data.isSource).toBe(false);
+    expect(res.data.exists).toBeNull();
+  });
+
+  it("returns invalid format for malformed public key", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination("invalid-key");
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.formatValid).toBe(false);
+    expect(res.data.error?.code).toBe("INVALID_FORMAT");
+
 describe("Asset Factories", () => {
   it("creates a native asset", () => {
     const asset = nativeAsset();
     expect(asset.isNative()).toBe(true);
   });
 
-  it("creates a USDC asset with mainnet or custom issuer", () => {
-    const asset = usdcAsset();
-    expect(asset.getCode()).toBe("USDC");
-    expect(asset.getIssuer()).toBe(USDC_MAINNET_ISSUER);
+  it("returns isSource true when destination matches source", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { source: VALID_DEST });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.isSource).toBe(true);
+    expect(res.data.error?.code).toBe("SAME_AS_SOURCE");
+  });
 
+  it("fails if checkExists is true but horizonUrl is missing", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { checkExists: true });
+    expect(res.status).toBe("error");
+    if (res.status !== "error") return;
+    expect(res.error.message).toContain("horizonUrl is required");
     const customIssuer =
       "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     const customAsset = usdcAsset(customIssuer);
@@ -2761,11 +2994,36 @@ describe("Asset Factories", () => {
     expect(customAsset.getIssuer()).toBe(customIssuer);
   });
 
-  it("creates a USDT asset with mainnet or custom issuer", () => {
-    const asset = usdtAsset();
-    expect(asset.getCode()).toBe("USDT");
-    expect(asset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+  it("returns exists true when account exists on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockResolvedValue({ id: VALID_DEST });
 
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.exists).toBe(true);
+    expect(mockLoadAccount).toHaveBeenCalledWith(VALID_DEST);
+  });
+
+  it("returns exists false when account is not found on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const notFoundError = new Error("Request failed with status 404");
+    (notFoundError as any).response = { status: 404 };
+    mockLoadAccount.mockRejectedValue(notFoundError);
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBe(false);
+    expect(res.data.error?.code).toBe("ACCOUNT_NOT_FOUND");
     const customIssuer =
       "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     const customAsset = usdtAsset(customIssuer);
@@ -2773,11 +3031,19 @@ describe("Asset Factories", () => {
     expect(customAsset.getIssuer()).toBe(customIssuer);
   });
 
-  it("creates a EURC asset with mainnet or custom issuer", () => {
-    const asset = eurcAsset();
-    expect(asset.getCode()).toBe("EURC");
-    expect(asset.getIssuer()).toBe(EURC_MAINNET_ISSUER);
+  it("returns FETCH_FAILED when Horizon check fails with other error", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockRejectedValue(new Error("Rate limit exceeded"));
 
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBeNull();
+    expect(res.data.error?.code).toBe("FETCH_FAILED");
     const customIssuer =
       "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     const customAsset = eurcAsset(customIssuer);

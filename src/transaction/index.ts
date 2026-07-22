@@ -78,9 +78,9 @@ export {
   buildReverseTransaction,
   buildPathPayment,
   buildAtomicSwap,
-  checkTrustlines,
-  buildBulkTrustlines,
+  buildAccountMerge,
 } from "./buildTransaction";
+export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
@@ -131,6 +131,11 @@ export type {
   ValidationRules,
 } from "./validateTransactionXdr";
 
+export { validateDestination } from "./validateDestination";
+export type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "./validateDestination";
 // ─── Asset constants and factories ───────────────────────────────────────────
 export const USDC_MAINNET_ISSUER =
   "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
