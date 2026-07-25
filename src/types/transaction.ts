@@ -5,4 +5,7 @@ export type {
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
+  ExportFormat,
+  ExportedTransaction,
+  ExportTransactionHistoryOptions,
 } from "../transaction/types";

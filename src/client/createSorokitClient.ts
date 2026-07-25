@@ -29,6 +29,7 @@ import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
+import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
 import { validateDestination } from "../transaction/validateDestination";
 import type {
   DestinationValidationResult,
@@ -73,6 +74,7 @@ import type {
   TransactionStreamConfig,
   TransactionPage,
 } from "../transaction/streamTransactions";
+import type { ExportTransactionHistoryOptions } from "../transaction/exportTransactionHistory";
 import type {
   ContractMethod,
   ContractInvokeParams,
@@ -232,6 +234,19 @@ export interface SorokitClient {
       publicKey: string,
       options?: Omit<ValidateDestinationOptions, "horizonUrl">,
     ): Promise<SorokitResult<DestinationValidationResult>>;
+    /**
+     * Export transaction history for an account with optional date, type, asset, and amount filters.
+     * Supports CSV (default) and JSON formats.
+     */
+    exportHistory(
+      publicKey: string,
+      options?: ExportTransactionHistoryOptions,
+    ): Promise<SorokitResult<string>>;
+    /** Alias for exportHistory */
+    exportTransactionHistory(
+      publicKey: string,
+      options?: ExportTransactionHistoryOptions,
+    ): Promise<SorokitResult<string>>;
   };
 
   readonly soroban: {
@@ -583,6 +598,30 @@ export function createSorokitClient(
             return validateDestination(publicKey, {
               ...options,
               horizonUrl: horizonUrl,
+            });
+          },
+        ).then(applyTx),
+      exportHistory: (publicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.exportHistory", params: { publicKey, options } },
+          () => {
+            logger.debug("transaction.exportHistory", { publicKey });
+            return exportTransactionHistory(horizonUrl, publicKey, {
+              ...options,
+              networkPassphrase: options?.networkPassphrase ?? networkPassphrase,
+            });
+          },
+        ).then(applyTx),
+      exportTransactionHistory: (publicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.exportTransactionHistory", params: { publicKey, options } },
+          () => {
+            logger.debug("transaction.exportTransactionHistory", { publicKey });
+            return exportTransactionHistory(horizonUrl, publicKey, {
+              ...options,
+              networkPassphrase: options?.networkPassphrase ?? networkPassphrase,
             });
           },
         ).then(applyTx),
