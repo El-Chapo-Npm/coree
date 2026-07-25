@@ -137,6 +137,18 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       disconnect: vi.fn().mockResolvedValue(ok(walletState)),
       signTransaction: vi.fn().mockResolvedValue(ok("SIGNED_XDR_MOCK==")),
       emptyState: vi.fn().mockReturnValue(ok(walletState)),
+      listConnectedAccounts: vi.fn().mockResolvedValue(
+        ok({
+          accounts: [MOCK_PUBLIC_KEY],
+          activeAccount: MOCK_PUBLIC_KEY,
+        }),
+      ),
+      switchAccount: vi.fn().mockResolvedValue(
+        ok({
+          publicKey: MOCK_PUBLIC_KEY,
+          walletState: MOCK_CONNECTED_WALLET_STATE,
+        }),
+      ),
     },
 
     account: {
@@ -192,5 +204,9 @@ export function createMockWalletAdapter() {
     connect: vi.fn().mockResolvedValue(ok(MOCK_PUBLIC_KEY)),
     disconnect: vi.fn().mockResolvedValue(ok(undefined)),
     signTransaction: vi.fn().mockResolvedValue(ok("SIGNED_XDR_MOCK==")),
+    // Optional multi-account stubs — set by default so tests can assert on them.
+    // Override with undefined to simulate a single-account wallet.
+    getAccounts: vi.fn().mockResolvedValue(ok([MOCK_PUBLIC_KEY])),
+    setActiveAccount: vi.fn().mockResolvedValue(ok(MOCK_PUBLIC_KEY)),
   };
 }

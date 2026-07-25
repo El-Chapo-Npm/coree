@@ -774,3 +774,212 @@ describe("prioritizeWallet (#95)", () => {
     expect(result.every((a) => !a.isAvailable())).toBe(true);
   });
 });
+
+import { listConnectedAccounts, switchAccount } from "../wallet/index";
+import type { ConnectedAccountsResult, AccountSwitchResult } from "../wallet/types";
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+const ACCOUNT_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+const ACCOUNT_B = "GBVV2ASSEN5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWWWB";
+const ACCOUNT_C = "GCCCCCSSEN5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWWWC";
+
+// ─── listConnectedAccounts ────────────────────────────────────────────────────
+
+describe("listConnectedAccounts", () => {
+  it("returns WALLET_BROWSER_ONLY when adapter is unavailable", async () => {
+    const adapter = fakeAdapter({ isAvailable: () => false });
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+    }
+  });
+
+  it("falls back to single active account when getAccounts is not present", async () => {
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      connect: async () => ok(ACCOUNT_A),
+    });
+    // No getAccounts method on this adapter.
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.activeAccount).toBe(ACCOUNT_A);
+      expect(result.data.accounts).toEqual([ACCOUNT_A]);
+    }
+  });
+
+  it("returns all accounts from getAccounts plus the active account", async () => {
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({
+        isAvailable: () => true,
+        connect: async () => ok(ACCOUNT_A),
+      }),
+      getAccounts: vi.fn().mockResolvedValue(ok([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C])),
+    };
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.activeAccount).toBe(ACCOUNT_A);
+      expect(result.data.accounts).toEqual([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C]);
+    }
+  });
+
+  it("deduplicates accounts when the active account is also returned by getAccounts", async () => {
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({
+        isAvailable: () => true,
+        connect: async () => ok(ACCOUNT_A),
+      }),
+      // getAccounts returns ACCOUNT_A again alongside ACCOUNT_B
+      getAccounts: vi.fn().mockResolvedValue(ok([ACCOUNT_A, ACCOUNT_B])),
+    };
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      // ACCOUNT_A must not appear twice
+      expect(result.data.accounts.filter((k) => k === ACCOUNT_A)).toHaveLength(1);
+      expect(result.data.accounts).toContain(ACCOUNT_B);
+    }
+  });
+
+  it("propagates error when connect() fails", async () => {
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      connect: async () => err(SorokitErrorCode.WALLET_CONNECT_FAILED, "wallet locked"),
+    });
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+    }
+  });
+
+  it("propagates error when getAccounts() fails", async () => {
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({
+        isAvailable: () => true,
+        connect: async () => ok(ACCOUNT_A),
+      }),
+      getAccounts: vi.fn().mockResolvedValue(
+        err(SorokitErrorCode.WALLET_CONNECT_FAILED, "accounts unavailable"),
+      ),
+    };
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+    }
+  });
+
+  it("returns a single-item accounts list when wallet only exposes the active account", async () => {
+    // getAccounts returns only the active account
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({
+        isAvailable: () => true,
+        connect: async () => ok(ACCOUNT_B),
+      }),
+      getAccounts: vi.fn().mockResolvedValue(ok([ACCOUNT_B])),
+    };
+    const result = await listConnectedAccounts(adapter);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.accounts).toHaveLength(1);
+      expect(result.data.accounts[0]).toBe(ACCOUNT_B);
+      expect(result.data.activeAccount).toBe(ACCOUNT_B);
+    }
+  });
+});
+
+// ─── switchAccount ────────────────────────────────────────────────────────────
+
+describe("switchAccount", () => {
+  it("returns WALLET_BROWSER_ONLY when adapter is unavailable", async () => {
+    const adapter = fakeAdapter({ isAvailable: () => false });
+    const result = await switchAccount(adapter, ACCOUNT_B);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+    }
+  });
+
+  it("returns WALLET_NOT_FOUND when adapter does not implement setActiveAccount", async () => {
+    // fakeAdapter has no setActiveAccount
+    const adapter = fakeAdapter({ isAvailable: () => true });
+    const result = await switchAccount(adapter, ACCOUNT_B);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      expect(result.error.message).toContain("programmatic account switching");
+    }
+  });
+
+  it("returns WALLET_CONNECT_FAILED when accountKey is empty", async () => {
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({ isAvailable: () => true }),
+      setActiveAccount: vi.fn().mockResolvedValue(ok(ACCOUNT_B)),
+    };
+    const result = await switchAccount(adapter, "   ");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+    }
+  });
+
+  it("calls setActiveAccount with the provided key and returns a connected WalletState", async () => {
+    const setActiveAccount = vi.fn().mockResolvedValue(ok(ACCOUNT_B));
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      setActiveAccount,
+    };
+
+    const result = await switchAccount(adapter, ACCOUNT_B);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.publicKey).toBe(ACCOUNT_B);
+      expect(result.data.walletState.connected).toBe(true);
+      expect(result.data.walletState.publicKey).toBe(ACCOUNT_B);
+      expect(result.data.walletState.walletType).toBe(WalletType.FREIGHTER);
+    }
+    expect(setActiveAccount).toHaveBeenCalledOnce();
+    expect(setActiveAccount).toHaveBeenCalledWith(ACCOUNT_B);
+  });
+
+  it("propagates error when setActiveAccount fails", async () => {
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({ isAvailable: () => true }),
+      setActiveAccount: vi.fn().mockResolvedValue(
+        err(SorokitErrorCode.WALLET_SIGN_REJECTED, "user cancelled"),
+      ),
+    };
+    const result = await switchAccount(adapter, ACCOUNT_B);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+    }
+  });
+
+  it("can switch between multiple accounts in sequence", async () => {
+    let activeKey = ACCOUNT_A;
+    const setActiveAccount = vi.fn().mockImplementation(async (key: string) => {
+      activeKey = key;
+      return ok(key);
+    });
+    const adapter: WalletAdapter = {
+      ...fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+      setActiveAccount,
+    };
+
+    const switchToB = await switchAccount(adapter, ACCOUNT_B);
+    expect(switchToB.status).toBe("ok");
+    if (switchToB.status === "ok") expect(switchToB.data.publicKey).toBe(ACCOUNT_B);
+
+    const switchToC = await switchAccount(adapter, ACCOUNT_C);
+    expect(switchToC.status).toBe("ok");
+    if (switchToC.status === "ok") expect(switchToC.data.publicKey).toBe(ACCOUNT_C);
+
+    expect(setActiveAccount).toHaveBeenCalledTimes(2);
+    expect(activeKey).toBe(ACCOUNT_C);
+  });
+});

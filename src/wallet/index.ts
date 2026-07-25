@@ -17,6 +17,8 @@ export type {
   DetectedWallet,
   RecommendationCriteria,
   WalletFeature,
+  ConnectedAccountsResult,
+  AccountSwitchResult,
 } from "./types";
 export { WalletType as WalletTypeEnum } from "./types";
 export {
@@ -43,6 +45,8 @@ import type {
   DetectedWallet,
   RecommendationCriteria,
   WalletFeature,
+  ConnectedAccountsResult,
+  AccountSwitchResult,
 } from "./types";
 import { WalletType } from "./types";
 
@@ -254,6 +258,125 @@ export function recommendWallets(
  */
 export function emptyWalletState(): SorokitResult<WalletState> {
   return ok({ connected: false, publicKey: null, walletType: null });
+}
+
+/**
+ * List all accounts currently accessible from the connected wallet.
+ *
+ * When the adapter implements the optional `getAccounts()` method (signalling
+ * that the underlying wallet / SWK version supports multi-account listing),
+ * that method is called and its results are combined with the currently-active
+ * account returned by `adapter.connect()`.
+ *
+ * When `getAccounts()` is absent, this function falls back gracefully: it calls
+ * `adapter.connect()` and returns a single-item list containing the active account.
+ *
+ * The returned `ConnectedAccountsResult.accounts` array is deduplicated and always
+ * contains at least the active account on success.
+ *
+ * @returns `ok(ConnectedAccountsResult)` on success, or an `error` result when
+ *          the adapter is unavailable or the active account cannot be resolved.
+ *
+ * @example
+ * const result = await listConnectedAccounts(adapter);
+ * if (result.status === "ok") {
+ *   console.log("Active:", result.data.activeAccount);
+ *   console.log("All accounts:", result.data.accounts);
+ * }
+ */
+export async function listConnectedAccounts(
+  adapter: WalletAdapter,
+): Promise<SorokitResult<ConnectedAccountsResult>> {
+  if (!adapter.isAvailable()) {
+    return err(
+      SorokitErrorCode.WALLET_BROWSER_ONLY,
+      `${adapter.walletType} requires a browser environment.`,
+    );
+  }
+
+  // Resolve the currently active account — always required.
+  const activeResult = await adapter.connect();
+  if (activeResult.status === "error") return activeResult;
+  const activeAccount = activeResult.data;
+
+  // If the adapter exposes multi-account listing, use it.
+  if (typeof adapter.getAccounts === "function") {
+    const accountsResult = await adapter.getAccounts();
+    if (accountsResult.status === "error") return accountsResult;
+
+    // Merge, dedup, and ensure the active account is always present.
+    const seen = new Set<string>([activeAccount]);
+    const accounts: string[] = [activeAccount];
+    for (const key of accountsResult.data) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        accounts.push(key);
+      }
+    }
+
+    return ok({ accounts, activeAccount });
+  }
+
+  // Fallback: single-account wallet — return just the active account.
+  return ok({ accounts: [activeAccount], activeAccount });
+}
+
+/**
+ * Switch the wallet's active account to the given public key.
+ *
+ * Requires the adapter to implement the optional `setActiveAccount()` method.
+ * When the method is absent (the wallet does not support programmatic account
+ * switching), the function returns a `WALLET_NOT_FOUND` error with a clear message.
+ *
+ * On success, a fresh `WalletState` reflecting the switched account is returned
+ * alongside the resolved public key.
+ *
+ * @param adapter     - The wallet adapter to operate on.
+ * @param accountKey  - The Stellar public key (G...) to switch to.
+ * @returns `ok(AccountSwitchResult)` on success, or an `error` result.
+ *
+ * @example
+ * const result = await switchAccount(adapter, "GABC...");
+ * if (result.status === "ok") {
+ *   console.log("Now signed in as", result.data.publicKey);
+ * }
+ */
+export async function switchAccount(
+  adapter: WalletAdapter,
+  accountKey: string,
+): Promise<SorokitResult<AccountSwitchResult>> {
+  if (!adapter.isAvailable()) {
+    return err(
+      SorokitErrorCode.WALLET_BROWSER_ONLY,
+      `${adapter.walletType} requires a browser environment.`,
+    );
+  }
+
+  if (typeof adapter.setActiveAccount !== "function") {
+    return err(
+      SorokitErrorCode.WALLET_NOT_FOUND,
+      `${adapter.walletType} does not support programmatic account switching.`,
+    );
+  }
+
+  if (!accountKey || accountKey.trim().length === 0) {
+    return err(
+      SorokitErrorCode.WALLET_CONNECT_FAILED,
+      "switchAccount: accountKey must be a non-empty public key string.",
+    );
+  }
+
+  const switchResult = await adapter.setActiveAccount(accountKey);
+  if (switchResult.status === "error") return switchResult;
+
+  const publicKey = switchResult.data;
+  const walletState: WalletState = {
+    connected: true,
+    publicKey,
+    walletType: adapter.walletType,
+  };
+
+  return ok({ publicKey, walletState });
 }
 
 /**
