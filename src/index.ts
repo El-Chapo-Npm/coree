@@ -128,6 +128,16 @@ export {
 export type { TransactionBuilderContext } from "./transaction/transactionContext";
 export { buildAccountMerge } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+export {
+  exportTransactionHistory,
+  formatTransactionsToCsv,
+  formatTransactionsToJson,
+} from "./transaction";
+export type {
+  ExportFormat,
+  ExportedTransaction,
+  ExportTransactionHistoryOptions,
+} from "./transaction";
 export type {
   AccountCreateParams,
   AtomicSwapParams,

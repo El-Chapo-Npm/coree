@@ -107,3 +107,9 @@ export interface AtomicSwapParams extends MemoParams {
 }
 
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
+export type {
+  ExportFormat,
+  ExportedTransaction,
+  ExportTransactionHistoryOptions,
+} from "./exportTransactionHistory";
+

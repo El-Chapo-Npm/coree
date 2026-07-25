@@ -85,6 +85,11 @@ export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
+export {
+  exportTransactionHistory,
+  formatTransactionsToCsv,
+  formatTransactionsToJson,
+} from "./exportTransactionHistory";
 export { validateTransaction } from "./validateTransaction";
 export {
   createTransactionContext,
@@ -113,6 +118,11 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export type {
+  ExportFormat,
+  ExportedTransaction,
+  ExportTransactionHistoryOptions,
+} from "./exportTransactionHistory";
 export type {
   ValidationIssue,
   TransactionValidationContext,
