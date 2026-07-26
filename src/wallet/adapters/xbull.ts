@@ -43,7 +43,7 @@ export class XBullAdapter implements WalletAdapter {
     }
   }
 
-  async disconnect(): Promise<SorokitResult<void>> {
+  async disconnect(): Promise<SorokitResult<undefined>> {
     return ok(undefined);
   }
 
