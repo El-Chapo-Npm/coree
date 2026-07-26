@@ -156,6 +156,20 @@ export type {
   CustomValidationRule,
   ParsedOperation,
 } from "./transaction/validateTransaction";
+export {
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
+} from "./transaction";
+export type {
+  TransactionTemplate,
+  TransactionTemplateKind,
+  TransactionTemplateStore,
+  TemplateParamValue,
+} from "./transaction";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
