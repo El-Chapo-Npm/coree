@@ -863,3 +863,167 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
     expect(elapsed).toBeLessThan(DELAY * keys.length * 0.9);
   }, 10_000);
 });
+
+describe("getAccountActivitySummary (#140)", () => {
+  const HORIZON_URL = "https://horizon-testnet.stellar.org";
+  const PUBLIC_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("fails when public key is invalid or empty", async () => {
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+    const res = await getAccountActivitySummary(HORIZON_URL, "");
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.error.code).toBe("INVALID_ADDRESS");
+    }
+  });
+
+  it("summarizes activity for 24h period", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "100",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+      {
+        created_at: new Date(now - 5 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash2",
+        type: "payment",
+        amount: "25",
+        asset_type: "credit_alphanum4",
+        asset_code: "USDC",
+        asset_issuer: "GISSUER",
+        from: PUBLIC_KEY,
+      },
+    ];
+
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
+
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
+
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "24h");
+
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("24h");
+      expect(res.data.transactionCount).toBe(2);
+      expect(res.data.successfulTransactionCount).toBe(2);
+      expect(res.data.totalAmountIn).toBe("100");
+      expect(res.data.totalAmountOut).toBe("25");
+      expect(res.data.topAssets).toHaveLength(2);
+    }
+  });
+
+  it("summarizes activity for 7d period filtering out older transactions", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "50",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+      {
+        created_at: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash2",
+        type: "payment",
+        amount: "200",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+    ];
+
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
+
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
+
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "7d");
+
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("7d");
+      expect(res.data.transactionCount).toBe(1);
+      expect(res.data.totalAmountIn).toBe("50");
+    }
+  });
+
+  it("summarizes activity for 30d period including failed transactions", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 15 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: false,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "10",
+        asset_type: "native",
+        asset_code: "XLM",
+        from: PUBLIC_KEY,
+      },
+    ];
+
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
+
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
+
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "30d");
+
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("30d");
+      expect(res.data.transactionCount).toBe(1);
+      expect(res.data.failedTransactionCount).toBe(1);
+      expect(res.data.successfulTransactionCount).toBe(0);
+    }
+  });
+});
+
