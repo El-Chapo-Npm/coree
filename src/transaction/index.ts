@@ -146,6 +146,17 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+export { FeeCalculator } from "./feeCalculator";
+export type {
+  FeeBreakdown,
+  FeeComponent,
+  FeeComponentTiers,
+  FeeComparisonItem,
+  FeeCalculatorListener,
+  FeeCalculatorUnsubscribe,
+  FeeCalculatorConfig,
+  FeeBreakdownFallback,
+} from "./feeCalculator";
 // ─── Asset constants and factories ───────────────────────────────────────────
 export const USDC_MAINNET_ISSUER =
   "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";

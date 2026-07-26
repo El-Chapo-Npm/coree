@@ -111,6 +111,17 @@ export type {
   FeeTiers,
 } from "./transaction/estimateFee";
 export { calculateFeeTiers } from "./transaction/estimateFee";
+export { FeeCalculator } from "./transaction";
+export type {
+  FeeBreakdown,
+  FeeComponent,
+  FeeComponentTiers,
+  FeeComparisonItem,
+  FeeCalculatorListener,
+  FeeCalculatorUnsubscribe,
+  FeeCalculatorConfig,
+  FeeBreakdownFallback,
+} from "./transaction";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   buildPathPayment,
