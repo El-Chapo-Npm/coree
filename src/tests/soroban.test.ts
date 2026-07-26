@@ -19,6 +19,7 @@ import {
   subscribeContractEvents,
   queryContractEvents,
 } from "../soroban/subscribeContractEvents";
+import { validateContractData } from "../soroban";
 import type { ContractAbi } from "../soroban/types";
 
 const {
@@ -2277,5 +2278,92 @@ describe("parseContractResult (#119)", () => {
     expect(() =>
       parseContractResult(xdr.ScVal.scvU32(1), "address"),
     ).toThrow(TypeError);
+  });
+});
+
+describe("validateContractData (#141)", () => {
+  it("accepts valid typed contract data", () => {
+    const result = validateContractData(
+      contractId(),
+      xdr.ScVal.scvSymbol("balance"),
+      123n,
+      "u128",
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.type).toBe("u128");
+  });
+
+  it("infers valid ScVal data when type is omitted", () => {
+    const result = validateContractData(
+      contractId(),
+      xdr.ScVal.scvSymbol("owner"),
+      xdr.ScVal.scvString(Buffer.from("alice", "utf8")),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.type).toBe("string");
+  });
+
+  it("rejects invalid contract IDs and void keys", () => {
+    const result = validateContractData(
+      "not-a-contract",
+      undefined,
+      true,
+      "bool",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "contractId" }),
+        expect.objectContaining({ field: "key" }),
+      ]),
+    );
+  });
+
+  it("rejects values outside the requested integer type", () => {
+    const result = validateContractData(
+      contractId(),
+      "counter",
+      -1,
+      "u32",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      field: "value",
+      message: expect.stringContaining("u32"),
+    });
+  });
+
+  it("rejects ScVal values that do not match the requested type", () => {
+    const result = validateContractData(
+      contractId(),
+      "flag",
+      xdr.ScVal.scvBool(true),
+      "u32",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      field: "value",
+      message: expect.stringContaining("got bool"),
+    });
+  });
+
+  it("validates Stellar account and contract address values", () => {
+    const account = Keypair.random().publicKey();
+    const valid = validateContractData(contractId(), "owner", account, "address");
+    const invalid = validateContractData(
+      contractId(),
+      "owner",
+      "not-address",
+      "address",
+    );
+
+    expect(valid.valid).toBe(true);
+    expect(invalid.valid).toBe(false);
   });
 });

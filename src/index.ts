@@ -167,6 +167,14 @@ export {
   decodeContractValue,
   encodeContractArgs,
 } from "./soroban/contractEncoding";
+export {
+  validateContractData,
+} from "./soroban";
+export type {
+  ContractDataType,
+  ContractDataValidationIssue,
+  ContractDataValidationResult,
+} from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
 export { getContractMethods } from "./soroban/contractMetadata";
 export { buildContractDeploy } from "./soroban/deployContract";
