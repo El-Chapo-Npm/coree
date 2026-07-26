@@ -61,7 +61,9 @@ export enum SorokitErrorCode {
 
 /** Construct a success result */
 export function ok<T>(data: T): SorokitResult<T> {
-  return { status: "ok", data, error: null };
+  // Freeze the wrapper so status/error cannot be silently mutated by consumers.
+  // data is left unfrozen — generic types may not be safely freezable.
+  return Object.freeze({ status: "ok", data, error: null }) as SorokitResult<T>;
 }
 
 /** Construct a failure result */
@@ -71,11 +73,13 @@ export function err<T>(
   cause?: unknown,
   traceId?: string,
 ): SorokitResult<T> {
-  return {
+  // Freeze the wrapper for the same reason as ok(). cause is intentionally
+  // excluded from freezing — it is an external value we do not own.
+  return Object.freeze({
     status: "error",
     data: null,
     error: traceId !== undefined ? { code, message, cause, traceId } : { code, message, cause },
-  };
+  }) as SorokitResult<T>;
 }
 
 /**
