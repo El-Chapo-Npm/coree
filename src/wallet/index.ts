@@ -1,6 +1,7 @@
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { signTransaction } from "./signTransaction";
+export { signTransactionOffline } from "./signTransactionOffline";
 export { FreighterAdapter } from "./adapters/freighter";
 export { XBullAdapter } from "./adapters/xbull";
 export { LobstrAdapter } from "./adapters/lobstr";

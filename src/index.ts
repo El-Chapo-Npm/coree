@@ -21,6 +21,7 @@ export {
   prioritizeWallet,
   recommendWallets,
   removeSignatureFromEnvelope,
+  signTransactionOffline,
 } from "./wallet";
 export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";

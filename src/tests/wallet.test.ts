@@ -13,6 +13,7 @@ import {
   connectWallet,
   disconnectWallet,
   signTransaction,
+  signTransactionOffline,
   emptyWalletState,
   collectMultiSignatures,
   diagnoseWalletConnection,
@@ -981,5 +982,122 @@ describe("switchAccount", () => {
 
     expect(setActiveAccount).toHaveBeenCalledTimes(2);
     expect(activeKey).toBe(ACCOUNT_C);
+  });
+});
+
+describe("signTransactionOffline (#145)", () => {
+  it("signs an unsigned transaction XDR with a secret key", () => {
+    const source = Keypair.random();
+    const unsigned = new TransactionBuilder(
+      new Account(source.publicKey(), "1"),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(
+        Operation.manageData({ name: "offline-sign", value: "ok" }),
+      )
+      .setTimeout(30)
+      .build()
+      .toXDR();
+
+    const result = signTransactionOffline(
+      unsigned,
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.data).not.toBe(unsigned);
+    expect(envelopeSignatures(result.data)).toHaveLength(1);
+
+    const signedTx = TransactionBuilder.fromXDR(result.data, Networks.TESTNET);
+    expect(signedTx.signatures).toHaveLength(1);
+  });
+
+  it("returns WALLET_SIGN_FAILED for an invalid private key", () => {
+    const result = signTransactionOffline(
+      createUnsignedEnvelopeXdr(),
+      "not-a-secret-seed",
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("secret seed");
+  });
+
+  it("returns WALLET_SIGN_FAILED for empty XDR", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      "  ",
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("XDR");
+  });
+
+  it("returns WALLET_SIGN_FAILED for invalid XDR", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      "not-valid-xdr",
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+  });
+
+  it("returns WALLET_SIGN_FAILED when network passphrase is missing", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      createUnsignedEnvelopeXdr(),
+      source.secret(),
+      "   ",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("passphrase");
+  });
+
+  it("produces a signature that matches the source keypair hint", () => {
+    const source = Keypair.random();
+    const unsigned = new TransactionBuilder(
+      new Account(source.publicKey(), "42"),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(Operation.manageData({ name: "hint-check", value: null }))
+      .setTimeout(30)
+      .build()
+      .toXDR();
+
+    const result = signTransactionOffline(
+      unsigned,
+      source.secret(),
+      Networks.TESTNET,
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    const signatures = envelopeSignatures(result.data);
+    expect(signatures).toHaveLength(1);
+    expect(Buffer.from(signatures[0]!.hint())).toEqual(
+      Buffer.from(source.signatureHint()),
+    );
   });
 });
