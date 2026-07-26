@@ -4,6 +4,20 @@ export { signTransaction } from "./signTransaction";
 export { FreighterAdapter } from "./adapters/freighter";
 export { XBullAdapter } from "./adapters/xbull";
 export { LobstrAdapter } from "./adapters/lobstr";
+export {
+  WalletStatusTracker,
+  getAdapterName,
+  truncatePublicKey,
+  getAriaLabel,
+  getStatusColorClass,
+} from "./walletStatusTracker";
+export type {
+  WalletConnectionStatus,
+  WalletStatus,
+  WalletStatusListener,
+  WalletStatusUnsubscribe,
+  WalletStatusTrackerConfig,
+} from "./walletStatusTracker";
 export type {
   WalletType,
   WalletState,

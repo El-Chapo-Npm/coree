@@ -983,3 +983,271 @@ describe("switchAccount", () => {
     expect(activeKey).toBe(ACCOUNT_C);
   });
 });
+
+// ─── WalletStatusTracker ───────────────────────────────────────────────────────
+
+import {
+  WalletStatusTracker,
+  getAdapterName,
+  truncatePublicKey,
+  getAriaLabel,
+  getStatusColorClass,
+} from "../wallet/walletStatusTracker";
+import type { WalletConnectionStatus, WalletStatus } from "../wallet/walletStatusTracker";
+
+describe("getAdapterName", () => {
+  it("returns human-readable name for Freighter", () => {
+    expect(getAdapterName(WalletType.FREIGHTER)).toBe("Freighter");
+  });
+
+  it("returns human-readable name for xBull", () => {
+    expect(getAdapterName(WalletType.XBULL)).toBe("xBull");
+  });
+
+  it("returns human-readable name for Lobstr", () => {
+    expect(getAdapterName(WalletType.LOBSTR)).toBe("Lobstr");
+  });
+
+  it("returns wallet type as fallback for unknown types", () => {
+    expect(getAdapterName("UNKNOWN" as WalletType)).toBe("UNKNOWN");
+  });
+});
+
+describe("truncatePublicKey", () => {
+  it("truncates a long public key with ellipsis", () => {
+    const key = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    expect(truncatePublicKey(key)).toBe("GAAZ...CWNA");
+  });
+
+  it("returns short keys unchanged", () => {
+    expect(truncatePublicKey("ABC")).toBe("ABC");
+  });
+
+  it("uses custom truncation length", () => {
+    const key = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    expect(truncatePublicKey(key, 6)).toBe("GAAZI4...OCCWNA");
+  });
+
+  it("handles empty string", () => {
+    expect(truncatePublicKey("")).toBe("");
+  });
+});
+
+describe("getAriaLabel", () => {
+  it("returns connected label", () => {
+    const status: WalletStatus = {
+      status: "connected",
+      walletType: WalletType.FREIGHTER,
+      publicKey: "GABC...1234",
+      adapterName: "Freighter",
+      truncatedAddress: "GABC...1234",
+      error: null,
+    };
+    expect(getAriaLabel(status)).toContain("Wallet connected");
+    expect(getAriaLabel(status)).toContain("Freighter");
+  });
+
+  it("returns connecting label", () => {
+    const status: WalletStatus = {
+      status: "connecting",
+      walletType: null,
+      publicKey: null,
+      adapterName: null,
+      truncatedAddress: null,
+      error: null,
+    };
+    expect(getAriaLabel(status)).toBe("Connecting to wallet");
+  });
+
+  it("returns disconnected label", () => {
+    const status: WalletStatus = {
+      status: "disconnected",
+      walletType: null,
+      publicKey: null,
+      adapterName: null,
+      truncatedAddress: null,
+      error: null,
+    };
+    expect(getAriaLabel(status)).toBe("No wallet connected");
+  });
+
+  it("returns error label", () => {
+    const status: WalletStatus = {
+      status: "error",
+      walletType: null,
+      publicKey: null,
+      adapterName: null,
+      truncatedAddress: null,
+      error: "Connection rejected",
+    };
+    expect(getAriaLabel(status)).toBe("Wallet error: Connection rejected");
+  });
+});
+
+describe("getStatusColorClass", () => {
+  it("returns ok class for connected", () => {
+    expect(getStatusColorClass("connected")).toBe("sorokit-status-ok");
+  });
+
+  it("returns pending class for connecting", () => {
+    expect(getStatusColorClass("connecting")).toBe("sorokit-status-pending");
+  });
+
+  it("returns off class for disconnected", () => {
+    expect(getStatusColorClass("disconnected")).toBe("sorokit-status-off");
+  });
+
+  it("returns error class for error", () => {
+    expect(getStatusColorClass("error")).toBe("sorokit-status-error");
+  });
+});
+
+describe("WalletStatusTracker", () => {
+  it("starts in disconnected state", () => {
+    const tracker = new WalletStatusTracker();
+    expect(tracker.status.status).toBe("disconnected");
+    expect(tracker.isConnected).toBe(false);
+    expect(tracker.isDisconnected).toBe(true);
+    expect(tracker.isConnecting).toBe(false);
+    expect(tracker.hasError).toBe(false);
+  });
+
+  it("connect transitions state and returns wallet state on success", async () => {
+    const tracker = new WalletStatusTracker();
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => ok(ACCOUNT_A),
+    });
+
+    const result = await tracker.connect(adapter);
+    expect(result.status).toBe("ok");
+    expect(tracker.isConnected).toBe(true);
+    expect(tracker.status.publicKey).toBe(ACCOUNT_A);
+    expect(tracker.status.adapterName).toBe("Freighter");
+    expect(tracker.status.walletType).toBe(WalletType.FREIGHTER);
+    expect(tracker.status.truncatedAddress).toContain("...");
+  });
+
+  it("connect returns error and sets error state on failure", async () => {
+    const tracker = new WalletStatusTracker();
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      connect: async () => err(SorokitErrorCode.WALLET_CONNECT_FAILED, "user rejected"),
+    });
+
+    const result = await tracker.connect(adapter);
+    expect(result.status).toBe("error");
+    expect(tracker.hasError).toBe(true);
+    expect(tracker.status.error).toBe("user rejected");
+  });
+
+  it("connect transitions through connecting state", async () => {
+    const tracker = new WalletStatusTracker();
+    const statuses: WalletConnectionStatus[] = [];
+    tracker.subscribe((s) => statuses.push(s.status));
+
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      connect: async () => {
+        return ok(ACCOUNT_A);
+      },
+    });
+
+    await tracker.connect(adapter);
+    expect(statuses).toContain("connecting");
+    expect(statuses).toContain("connected");
+  });
+
+  it("disconnect resets to disconnected state", async () => {
+    const tracker = new WalletStatusTracker();
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      disconnect: async () => ok(undefined),
+    });
+
+    await tracker.connect(adapter);
+    expect(tracker.isConnected).toBe(true);
+
+    await tracker.disconnect(adapter);
+    expect(tracker.isDisconnected).toBe(true);
+    expect(tracker.status.publicKey).toBeNull();
+    expect(tracker.status.adapterName).toBeNull();
+  });
+
+  it("subscribe adds listener and returns unsubscribe function", () => {
+    const tracker = new WalletStatusTracker();
+    const listener = vi.fn();
+    const unsubscribe = tracker.subscribe(listener);
+    expect(typeof unsubscribe).toBe("function");
+
+    tracker.setDisconnected();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    tracker.setDisconnected();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("setError sets error state with message", () => {
+    const tracker = new WalletStatusTracker();
+    tracker.setError("Something went wrong");
+    expect(tracker.hasError).toBe(true);
+    expect(tracker.status.error).toBe("Something went wrong");
+  });
+
+  it("setDisconnected resets to initial state", () => {
+    const tracker = new WalletStatusTracker();
+    tracker.setError("test error");
+    tracker.setDisconnected();
+    expect(tracker.isDisconnected).toBe(true);
+    expect(tracker.status.error).toBeNull();
+    expect(tracker.status.publicKey).toBeNull();
+  });
+
+  it("restoreState restores connected state from WalletState", () => {
+    const tracker = new WalletStatusTracker();
+    tracker.restoreState({
+      connected: true,
+      publicKey: ACCOUNT_A,
+      walletType: WalletType.XBULL,
+    });
+    expect(tracker.isConnected).toBe(true);
+    expect(tracker.status.adapterName).toBe("xBull");
+    expect(tracker.status.publicKey).toBe(ACCOUNT_A);
+  });
+
+  it("restoreState ignores disconnected state", () => {
+    const tracker = new WalletStatusTracker();
+    tracker.restoreState({
+      connected: false,
+      publicKey: null,
+      walletType: null,
+    });
+    expect(tracker.isDisconnected).toBe(true);
+  });
+
+  it("calls onStatusChange from config", async () => {
+    const onStatusChange = vi.fn();
+    const tracker = new WalletStatusTracker({ onStatusChange });
+
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      connect: async () => ok(ACCOUNT_A),
+    });
+
+    await tracker.connect(adapter);
+    expect(onStatusChange).toHaveBeenCalled();
+    expect(onStatusChange.mock.calls[onStatusChange.mock.calls.length - 1][0].status).toBe("connected");
+  });
+
+  it("destroy clears listeners and resets state", () => {
+    const tracker = new WalletStatusTracker();
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+    tracker.destroy();
+    expect(tracker.isDisconnected).toBe(true);
+    // listener should not be called after destroy
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
