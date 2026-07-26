@@ -117,6 +117,8 @@ export {
   checkTrustlines,
   buildBulkTrustlines,
 } from "./transaction/index";
+export { compareFeeAcrossNetworks } from "./transaction/index";
+export type { NetworkFeeResult } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,

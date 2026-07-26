@@ -1118,3 +1118,68 @@ export async function buildAccountMerge(
   }
 }
 
+
+/**
+ * Build an unsigned transaction XDR containing a changeTrust operation
+ * for each asset in the provided array. Useful for establishing multiple
+ * trustlines in a single transaction.
+ *
+ * @param horizonUrl      - Base URL of the Horizon server.
+ * @param networkConfig   - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account establishing the trustlines.
+ * @param assets          - Array of Asset objects to trust.
+ * @param autoFetchSequence - When true, reuses the 5-second sequence cache.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ */
+export async function buildBulkTrustlines(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  assets: Asset[],
+  autoFetchSequence?: boolean,
+): Promise<SorokitResult<string>> {
+  if (assets.length === 0) {
+    return err(SorokitErrorCode.TX_BUILD_FAILED, "At least one asset is required.");
+  }
+
+  try {
+    const useCache = autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    for (const asset of assets) {
+      builder.addOperation(Operation.changeTrust({ asset }));
+    }
+
+    const tx = builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS).build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("bulk trustlines", cause),
+      cause,
+    );
+  }
+}

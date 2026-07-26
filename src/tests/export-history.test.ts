@@ -158,15 +158,16 @@ describe("exportTransactionHistory", () => {
   });
 
   it("filters by date range (fromDate / toDate)", async () => {
+    // Records in descending order (newest first) matching default order: "desc"
     const mockTxRecords = [
       {
-        hash: "tx1",
-        created_at: "2026-01-01T00:00:00Z",
-        ledger_attr: 10,
+        hash: "tx3",
+        created_at: "2026-02-01T00:00:00Z",
+        ledger_attr: 30,
         successful: true,
         fee_charged: 100,
         source_account: publicKey,
-        paging_token: "pt1",
+        paging_token: "pt3",
       },
       {
         hash: "tx2",
@@ -178,13 +179,13 @@ describe("exportTransactionHistory", () => {
         paging_token: "pt2",
       },
       {
-        hash: "tx3",
-        created_at: "2026-02-01T00:00:00Z",
-        ledger_attr: 30,
+        hash: "tx1",
+        created_at: "2026-01-01T00:00:00Z",
+        ledger_attr: 10,
         successful: true,
         fee_charged: 100,
         source_account: publicKey,
-        paging_token: "pt3",
+        paging_token: "pt1",
       },
     ];
 
