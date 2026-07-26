@@ -165,6 +165,12 @@ export type {
   CustomValidationRule,
   ParsedOperation,
 } from "./transaction/validateTransaction";
+export { validateTransactionOffline } from "./transaction/validateTransactionOffline";
+export type {
+  OfflineValidationIssue,
+  OfflineValidationReport,
+  OfflineValidationOptions,
+} from "./transaction/validateTransactionOffline";
 export {
   saveTransactionTemplate,
   loadTemplate,

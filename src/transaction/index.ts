@@ -93,6 +93,8 @@ export {
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
 export { validateTransaction } from "./validateTransaction";
+export { validateTransactionOffline } from "./validateTransactionOffline";
+export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,

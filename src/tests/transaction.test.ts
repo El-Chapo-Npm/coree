@@ -2746,6 +2746,135 @@ describe("checkTrustlines", () => {
   });
 });
 
+// ─── Offline transaction building ────────────────────────────────────────────
+
+describe("offline transaction building", () => {
+  const sourcePublicKey =
+    "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination =
+    "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("buildPaymentTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    // loadAccount must NOT be called in offline mode
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildCreateAccountTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        startingBalance: "2",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildTrustlineTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        assetCode: "USDC",
+        assetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("builds transaction with custom fee in offline mode", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "99",
+        estimatedFee: "2500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildPathPayment offline — uses sequenceNumber and skips loadAccount when path provided", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        mode: "strict-send",
+        amount: "100",
+        slippageAmount: "95",
+        sendAssetCode: "XLM",
+        destAssetCode: "USDC",
+        destAssetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+        path: [{ assetCode: "BTC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6" }],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+});
+
 describe("buildBulkTrustlines", () => {
   const networkConfig: ResolvedNetworkConfig = {
     horizonUrl: "https://horizon-testnet.stellar.org",

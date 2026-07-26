@@ -22,8 +22,8 @@ import {
 } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import type {
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import type {
   MemoParams,
   PaymentParams,
   TrustlineParams,
@@ -66,6 +66,59 @@ function updateSequenceCache(
 /** Clear the module-level sequence cache. Useful for test isolation. */
 export function clearSequenceCache(): void {
   _sequenceCache.clear();
+}
+
+// ─── Offline helper ───────────────────────────────────────────────────────────
+
+/**
+ * Resolve the source account for transaction building.
+ *
+ * - If `sequenceNumber` is provided, creates a local `Account` instance
+ *   (offline mode — no network calls).
+ * - Otherwise, fetches from Horizon (with optional sequence cache).
+ *
+ * @param horizonUrl       - Required when fetching from network.
+ * @param sourcePublicKey  - The source account G-address.
+ * @param sequenceNumber   - Optional offline sequence number.
+ * @param autoFetchSequence - Whether to use the module-level sequence cache.
+ * @returns `ok(Account)` or `error(TX_BUILD_FAILED)`.
+ */
+async function resolveSourceAccount(
+  horizonUrl: string,
+  sourcePublicKey: string,
+  sequenceNumber?: string,
+  autoFetchSequence?: boolean,
+): Promise<SorokitResult<Account>> {
+  // Offline path — no network call
+  if (sequenceNumber !== undefined) {
+    return ok(new Account(sourcePublicKey, sequenceNumber));
+  }
+
+  try {
+    if (autoFetchSequence === true) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        return ok(cached);
+      }
+    }
+    const server = createHorizonServer(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    return ok(sourceAccount);
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to load source account: ${toMessage(cause)}`,
+      cause,
+    );
+  }
+}
+
+/**
+ * Resolve the fee for a transaction.
+ * Returns the provided `estimatedFee` or falls back to `BASE_FEE`.
+ */
+function resolveFee(estimatedFee?: string): string {
+  return estimatedFee ?? BASE_FEE;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,27 +266,20 @@ export async function buildPaymentTransaction(
   const memoResult = validateMemoParams(params);
   if (memoResult.status === "error") return memoResult;
 
+  // Resolve source account (offline if sequenceNumber is provided)
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    params.sequenceNumber,
+    params.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(params.estimatedFee);
+
   try {
-    const useCache = params.autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        const server = createHorizonServer(horizonUrl);
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      const server = createHorizonServer(horizonUrl);
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
-
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -250,7 +296,8 @@ export async function buildPaymentTransaction(
     }
 
     const tx = builder.build();
-    if (useCache) {
+    // Only update cache when using autoFetchSequence (not in offline mode)
+    if (params.autoFetchSequence === true && params.sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
@@ -292,27 +339,20 @@ export async function buildCreateAccountTransaction(
   const memoResult = validateMemoParams(params);
   if (memoResult.status === "error") return memoResult;
 
+  // Resolve source account (offline if sequenceNumber is provided)
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    params.sequenceNumber,
+    params.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(params.estimatedFee);
+
   try {
-    const useCache = params.autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        const server = createHorizonServer(horizonUrl);
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      const server = createHorizonServer(horizonUrl);
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
-
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -328,7 +368,7 @@ export async function buildCreateAccountTransaction(
     }
 
     const tx = builder.build();
-    if (useCache) {
+    if (params.autoFetchSequence === true && params.sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
@@ -388,29 +428,22 @@ export async function buildTrustlineTransaction(
   const memoResult = validateMemoParams(params);
   if (memoResult.status === "error") return memoResult;
 
+  // Resolve source account (offline if sequenceNumber is provided)
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    params.sequenceNumber,
+    params.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(params.estimatedFee);
+
   try {
-    const useCache = params.autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        const server = createHorizonServer(horizonUrl);
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      const server = createHorizonServer(horizonUrl);
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
-
     const asset = new Asset(params.assetCode, params.assetIssuer);
 
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -426,7 +459,7 @@ export async function buildTrustlineTransaction(
     }
 
     const tx = builder.build();
-    if (useCache) {
+    if (params.autoFetchSequence === true && params.sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
@@ -450,10 +483,20 @@ export async function buildPaymentWithTrustline(
   sourcePublicKey: string,
   params: PaymentWithTrustlineParams,
 ): Promise<SorokitResult<string>> {
-  try {
-    const server = createHorizonServer(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+  // Resolve source account (offline if sequenceNumber is provided on trustline or payment)
+  const sequenceNumber = params.trustline.sequenceNumber ?? params.payment.sequenceNumber;
+  const estimatedFee = params.trustline.estimatedFee ?? params.payment.estimatedFee;
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    sequenceNumber,
+    params.trustline.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(estimatedFee);
 
+  try {
     const trustlineAssetResult = resolveAsset(
       params.trustline.assetCode,
       params.trustline.assetIssuer,
@@ -467,7 +510,7 @@ export async function buildPaymentWithTrustline(
     if (paymentAssetResult.status === "error") return paymentAssetResult;
 
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -523,12 +566,22 @@ export async function buildSwapTransaction(
   );
   if (assetBResult.status === "error") return assetBResult;
 
-  try {
-    const server = createHorizonServer(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+  // Resolve source account (offline if sequenceNumber is provided on paymentA or paymentB)
+  const sequenceNumber = params.paymentA.sequenceNumber ?? params.paymentB.sequenceNumber;
+  const estimatedFee = params.paymentA.estimatedFee ?? params.paymentB.estimatedFee;
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    sequenceNumber,
+    params.paymentA.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(estimatedFee);
 
+  try {
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -595,11 +648,18 @@ export async function buildReverseTransaction(
       );
     }
 
-    const server = createHorizonServer(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    // Resolve source account (offline if sequenceNumber is provided)
+    const sourceResult = await resolveSourceAccount(
+      horizonUrl,
+      sourcePublicKey,
+      params?.sequenceNumber,
+    );
+    if (sourceResult.status === "error") return sourceResult;
+    const sourceAccount = sourceResult.data;
+    const fee = params?.estimatedFee ?? params?.fee ?? resolveFee();
 
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: params?.fee ?? BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     });
 
@@ -795,24 +855,19 @@ export async function buildPathPayment(
     const pathResult = resolvePathAssets(finalPath);
     if (pathResult.status === "error") return pathResult;
 
-    const useCache = params.autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
+    // Resolve source account (offline if sequenceNumber is provided)
+    const sourceResult = await resolveSourceAccount(
+      horizonUrl,
+      sourcePublicKey,
+      params.sequenceNumber,
+      params.autoFetchSequence,
+    );
+    if (sourceResult.status === "error") return sourceResult;
+    const sourceAccount = sourceResult.data;
+    const fee = resolveFee(params.estimatedFee);
 
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     });
 
@@ -849,7 +904,7 @@ export async function buildPathPayment(
     }
 
     const tx = builder.build();
-    if (useCache) {
+    if (params.autoFetchSequence === true && params.sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
@@ -915,11 +970,18 @@ export async function buildAtomicSwap(
   }
 
   try {
-    const server = createHorizonServer(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    // Resolve source account (offline if sequenceNumber is provided)
+    const sourceResult = await resolveSourceAccount(
+      horizonUrl,
+      sourcePublicKey,
+      params.sequenceNumber,
+    );
+    if (sourceResult.status === "error") return sourceResult;
+    const sourceAccount = sourceResult.data;
+    const fee = resolveFee(params.estimatedFee);
 
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     });
 
@@ -1027,28 +1089,23 @@ export async function buildBulkTrustlines(
   sourcePublicKey: string,
   assets: Asset[],
   autoFetchSequence?: boolean,
+  sequenceNumber?: string,
+  estimatedFee?: string,
 ): Promise<SorokitResult<string>> {
+  // Resolve source account (offline if sequenceNumber is provided)
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    sequenceNumber,
+    autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(estimatedFee);
+
   try {
-    const useCache = autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        const server = new Horizon.Server(horizonUrl);
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      const server = new Horizon.Server(horizonUrl);
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
-
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     });
 
@@ -1058,7 +1115,7 @@ export async function buildBulkTrustlines(
 
     const transaction = builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS).build();
 
-    if (useCache) {
+    if (autoFetchSequence === true && sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
@@ -1079,6 +1136,16 @@ export interface AccountMergeOptions {
   memoType?: "text" | "id" | "hash" | "return";
   requireMemo?: boolean;
   memoValidator?: (memo: string) => SorokitResult<void>;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made.
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE.
+   */
+  estimatedFee?: string;
 }
 
 /**
@@ -1125,27 +1192,20 @@ export async function buildAccountMerge(
   const memoResult = options ? validateMemoParams(options) : ok(undefined);
   if (memoResult.status === "error") return memoResult;
 
+  // Resolve source account (offline if sequenceNumber is provided)
+  const sourceResult = await resolveSourceAccount(
+    horizonUrl,
+    sourcePublicKey,
+    options?.sequenceNumber,
+    options?.autoFetchSequence,
+  );
+  if (sourceResult.status === "error") return sourceResult;
+  const sourceAccount = sourceResult.data;
+  const fee = resolveFee(options?.estimatedFee);
+
   try {
-    const useCache = options?.autoFetchSequence === true;
-    let sourceAccount:
-      | Account
-      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
-
-    if (useCache) {
-      const cached = getSequenceCacheEntry(sourcePublicKey);
-      if (cached) {
-        sourceAccount = cached;
-      } else {
-        const server = createHorizonServer(horizonUrl);
-        sourceAccount = await server.loadAccount(sourcePublicKey);
-      }
-    } else {
-      const server = createHorizonServer(horizonUrl);
-      sourceAccount = await server.loadAccount(sourcePublicKey);
-    }
-
     const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee,
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(
@@ -1160,7 +1220,7 @@ export async function buildAccountMerge(
     }
 
     const tx = builder.build();
-    if (useCache) {
+    if (options?.autoFetchSequence === true && options?.sequenceNumber === undefined) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
