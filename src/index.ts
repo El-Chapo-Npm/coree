@@ -157,6 +157,11 @@ export type {
   ParsedOperation,
 } from "./transaction/validateTransaction";
 
+// ─── Soroban simulator (#210) ──────────────────────────────────────────────────
+export { SorobanSimulator } from "./soroban/simulator";
+export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./soroban/simulator";
+export { setSorobanSimulator } from "./shared/serverFactory";
+
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
 export type {
