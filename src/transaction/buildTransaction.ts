@@ -17,6 +17,8 @@ import {
   isTimeoutError,
   isXdrInvalidError,
   toMessage,
+  isNotFoundError,
+  retryWithBackoff,
 } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
@@ -1002,7 +1004,7 @@ export async function checkTrustlines(
 
     for (const balance of account.balances) {
       if (balance.asset_type !== "native") {
-        const code = (balance as any).asset_code;
+        const code = (balance as Horizon.HorizonApi.BalanceLineAsset).asset_code;
         if (codeSet.has(code)) {
           trusted.push(code);
         }
@@ -1017,6 +1019,66 @@ export async function checkTrustlines(
       cause,
     );
   }
+}
+
+export async function buildBulkTrustlines(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  assets: Asset[],
+  autoFetchSequence?: boolean,
+): Promise<SorokitResult<string>> {
+  try {
+    const useCache = autoFetchSequence === true;
+    let sourceAccount:
+      | Account
+      | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    for (const asset of assets) {
+      builder.addOperation(Operation.changeTrust({ asset }));
+    }
+
+    const transaction = builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS).build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(transaction.toXDR());
+  } catch (cause: unknown) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("bulk trustlines", cause),
+      cause,
+    );
+  }
+}
+
+export interface AccountMergeOptions {
+  autoFetchSequence?: boolean;
+  checkExists?: boolean;
+  memo?: string;
+  memoType?: "text" | "id" | "hash" | "return";
+  requireMemo?: boolean;
+  memoValidator?: (memo: string) => SorokitResult<void>;
 }
 
 /**
@@ -1064,8 +1126,7 @@ export async function buildAccountMerge(
   if (memoResult.status === "error") return memoResult;
 
   try {
-
-    const useCache = autoFetchSequence === true;
+    const useCache = options?.autoFetchSequence === true;
     let sourceAccount:
       | Account
       | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
@@ -1099,12 +1160,6 @@ export async function buildAccountMerge(
     }
 
     const tx = builder.build();
-    for (const asset of assets) {
-      builder.addOperation(Operation.changeTrust({ asset }));
-    }
-
-    const transaction = builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS).build();
-
     if (useCache) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
