@@ -11,6 +11,7 @@ import {
 import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describeSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -108,7 +109,7 @@ export async function submitTransaction(
     }
 
     const response = await retryWithBackoff(async () => {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       return await server.submitTransaction(tx);
     });
 

@@ -5,6 +5,7 @@ import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_CONTRACT_METADATA_TTL_MS } from "../shared/constants";
 import { toMessage } from "../shared";
 import type { ContractMethod } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 const SPEC_SECTION_NAME = "contractspecv0";
 
@@ -288,7 +289,7 @@ export async function getContractMethods(
   if (cached) return ok(cached);
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const contract = new Contract(contractId);
     const instanceResult = await rpc.getLedgerEntries(contract.getFootprint());
     const instanceEntry = instanceResult.entries[0];

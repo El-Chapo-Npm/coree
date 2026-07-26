@@ -42,6 +42,8 @@ import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
+import { createTraceContext, createTracedFetch, setTracedFetch, getTraceContext } from "../shared/tracing";
+import type { TraceContext } from "../shared/tracing";
 import { formatAddress, generateTraceId } from "../shared/utils";
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -136,6 +138,10 @@ export interface SorokitClient {
   readonly trustedIssuers: string[] | null;
   /** Correlation ID stamped onto every error and log entry from this client. */
   readonly traceId: string;
+  /** Distributed trace context for this client instance (#212). */
+  readonly traceContext: TraceContext;
+  /** Get the current trace context (null if none set). */
+  readonly getTraceContext: () => TraceContext | null;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -339,6 +345,12 @@ export function createSorokitClient(
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
   const logger = createTracedLogger(baseLogger, traceId);
+
+  // Set up distributed tracing with correlation IDs (#212).
+  const traceContext = createTraceContext(traceId);
+  const tracedFetch = createTracedFetch(traceContext);
+  setTracedFetch(tracedFetch);
+
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
@@ -377,6 +389,8 @@ export function createSorokitClient(
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
+    traceContext,
+    getTraceContext,
 
     wallet: {
       connect: (adapter) => {

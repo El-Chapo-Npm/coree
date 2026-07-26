@@ -212,6 +212,16 @@ export {
 export type { SorokitError, SorokitResult } from "./shared/response";
 export { generateTraceId } from "./shared/utils";
 
+// ─── Distributed tracing (#212) ────────────────────────────────────────────
+export {
+  getTraceContext,
+  createTraceContext,
+  createTracedFetch,
+  createAutoTracedFetch,
+  setTraceContext,
+} from "./shared/tracing";
+export type { TraceContext, TraceContextOptions } from "./shared/tracing";
+
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 export {
   clearMetrics,

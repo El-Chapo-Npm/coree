@@ -17,6 +17,7 @@ import { deduplicateRequest } from "../shared/utils";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import type { ContractCallResult, ContractReadParams } from "./types";
 import { validateContractAbi } from "./validateContractAbi";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Read (simulate) a Soroban contract view function — no signing required.
@@ -110,8 +111,8 @@ export async function readContract(
   // Deduplicate concurrent identical reads
   const performRead = async (): Promise<SorokitResult<ContractCallResult>> => {
     try {
-      const rpc = new SorobanRpc.Server(rpcUrl);
-      const horizonServer = new Horizon.Server(horizonUrl);
+      const rpc = createSorobanServer(rpcUrl);
+      const horizonServer = createHorizonServer(horizonUrl);
       const contract = new Contract(params.contractId);
 
       const sourceAccount = await horizonServer

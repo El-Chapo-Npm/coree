@@ -4,6 +4,7 @@ import type { SorokitResult } from "../shared/response";
 import { sleep, toMessage, isNotFoundError } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { TransactionResult, TransactionStatus } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -308,7 +309,7 @@ export async function* streamTransactions(
         cursor,
       });
 
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
 
       let builder = server
         .transactions()
