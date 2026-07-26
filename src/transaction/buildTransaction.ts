@@ -21,6 +21,7 @@ import {
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
   MemoParams,
   PaymentParams,
   TrustlineParams,
@@ -221,11 +222,11 @@ export async function buildPaymentTransaction(
       if (cached) {
         sourceAccount = cached;
       } else {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         sourceAccount = await server.loadAccount(sourcePublicKey);
       }
     } else {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       sourceAccount = await server.loadAccount(sourcePublicKey);
     }
 
@@ -300,11 +301,11 @@ export async function buildCreateAccountTransaction(
       if (cached) {
         sourceAccount = cached;
       } else {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         sourceAccount = await server.loadAccount(sourcePublicKey);
       }
     } else {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       sourceAccount = await server.loadAccount(sourcePublicKey);
     }
 
@@ -396,11 +397,11 @@ export async function buildTrustlineTransaction(
       if (cached) {
         sourceAccount = cached;
       } else {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         sourceAccount = await server.loadAccount(sourcePublicKey);
       }
     } else {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       sourceAccount = await server.loadAccount(sourcePublicKey);
     }
 
@@ -448,7 +449,7 @@ export async function buildPaymentWithTrustline(
   params: PaymentWithTrustlineParams,
 ): Promise<SorokitResult<string>> {
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const sourceAccount = await server.loadAccount(sourcePublicKey);
 
     const trustlineAssetResult = resolveAsset(
@@ -521,7 +522,7 @@ export async function buildSwapTransaction(
   if (assetBResult.status === "error") return assetBResult;
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const sourceAccount = await server.loadAccount(sourcePublicKey);
 
     const builder = new TransactionBuilder(sourceAccount, {
@@ -592,7 +593,7 @@ export async function buildReverseTransaction(
       );
     }
 
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const sourceAccount = await server.loadAccount(sourcePublicKey);
 
     const builder = new TransactionBuilder(sourceAccount, {
@@ -728,7 +729,7 @@ export async function buildPathPayment(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
 
     let finalPath = params.path;
     let finalSlippageAmount = params.slippageAmount;
@@ -912,7 +913,7 @@ export async function buildAtomicSwap(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const sourceAccount = await server.loadAccount(sourcePublicKey);
 
     const builder = new TransactionBuilder(sourceAccount, {
@@ -993,7 +994,7 @@ export async function checkTrustlines(
   assetCodes: string[],
 ): Promise<SorokitResult<string[]>> {
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const account = await server.loadAccount(publicKey);
 
     const codeSet = new Set(assetCodes);
@@ -1041,7 +1042,7 @@ export async function buildAccountMerge(
 ): Promise<SorokitResult<string>> {
   if (options?.checkExists) {
     try {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       await retryWithBackoff(() => server.loadAccount(destinationPublicKey));
     } catch (cause) {
       if (isNotFoundError(cause)) {
@@ -1074,11 +1075,11 @@ export async function buildAccountMerge(
       if (cached) {
         sourceAccount = cached;
       } else {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         sourceAccount = await server.loadAccount(sourcePublicKey);
       }
     } else {
-      const server = new Horizon.Server(horizonUrl);
+      const server = createHorizonServer(horizonUrl);
       sourceAccount = await server.loadAccount(sourcePublicKey);
     }
 

@@ -22,6 +22,7 @@ import {
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
@@ -136,7 +137,7 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const page = await server.transactions().order("desc").limit(FEE_TIERS_TX_LIMIT).call();
 
     const fees = page.records.map(
@@ -233,7 +234,7 @@ export async function estimateFee(
     } else {
       // Build a minimal sample payment transaction to simulate
       const { publicKey, destination, amount, assetCode, assetIssuer } = input;
-      const horizonServer = new Horizon.Server(horizonUrl);
+      const horizonServer = createHorizonServer(horizonUrl);
       const sourceAccount = await horizonServer.loadAccount(publicKey);
 
       let asset: Asset;
@@ -277,7 +278,7 @@ export async function estimateFee(
     }
 
     // Simulate via Soroban RPC
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
 

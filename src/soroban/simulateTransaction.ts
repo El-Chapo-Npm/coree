@@ -10,6 +10,7 @@ import {
 } from "../shared";
 import type { SimulateTransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 export interface SimulateTransactionOptions {
   cache?: SorokitCache;
@@ -89,7 +90,7 @@ export async function simulateTransaction(
   }
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
 

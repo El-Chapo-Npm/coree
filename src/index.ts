@@ -157,6 +157,11 @@ export type {
   ParsedOperation,
 } from "./transaction/validateTransaction";
 
+// ─── Soroban simulator (#210) ──────────────────────────────────────────────────
+export { SorobanSimulator } from "./soroban/simulator";
+export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./soroban/simulator";
+export { setSorobanSimulator } from "./shared/serverFactory";
+
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
 export type {
@@ -211,6 +216,16 @@ export {
 } from "./shared/response";
 export type { SorokitError, SorokitResult } from "./shared/response";
 export { generateTraceId } from "./shared/utils";
+
+// ─── Distributed tracing (#212) ────────────────────────────────────────────
+export {
+  getTraceContext,
+  createTraceContext,
+  createTracedFetch,
+  createAutoTracedFetch,
+  setTraceContext,
+} from "./shared/tracing";
+export type { TraceContext, TraceContextOptions } from "./shared/tracing";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 export {

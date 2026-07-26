@@ -14,6 +14,8 @@ export { invokeBatchContracts } from "./invokeBatchContracts";
 export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
+export { SorobanSimulator } from "./simulator";
+export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
 export {
   snapshotContractState,
