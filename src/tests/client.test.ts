@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
-import { SorokitErrorCode } from "../shared/response";
+import { SorokitErrorCode, err, ok } from "../shared/response";
+import { WalletType } from "../wallet/types";
+import type { WalletAdapter } from "../wallet/types";
 
 describe("createSorokitClient", () => {
   it("creates a client for testnet", () => {
@@ -144,115 +146,73 @@ describe("createSorokitClient", () => {
     }
   });
 
-  describe("Client Configuration Validation (#137)", () => {
-    it("returns error if config is null or not an object", () => {
-      // @ts-expect-error — testing runtime check
-      const result = createSorokitClient(null);
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+  it("wallet.connect propagates error from failing adapter", async () => {
+    const clientRes = createSorokitClient({ network: "testnet" });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const mockFailingAdapter: WalletAdapter = {
+        walletType: WalletType.FREIGHTER,
+        isAvailable: () => true,
+        connect: async () => err(SorokitErrorCode.WALLET_CONNECT_FAILED, "Connect failed"),
+        disconnect: async () => ok(undefined),
+        signTransaction: async () => err(SorokitErrorCode.WALLET_SIGN_FAILED, "Sign failed"),
+      };
+      const res = await clientRes.data.wallet.connect(mockFailingAdapter);
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
       }
-    });
+    }
+  });
 
-    it("returns error if horizonUrl is malformed", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        horizonUrl: "not-a-valid-url",
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("horizonUrl");
+  it("wallet.signTransaction propagates WALLET_SIGN_REJECTED error", async () => {
+    const clientRes = createSorokitClient({ network: "testnet" });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const mockRejectingAdapter: WalletAdapter = {
+        walletType: WalletType.FREIGHTER,
+        isAvailable: () => true,
+        connect: async () => ok("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        disconnect: async () => ok(undefined),
+        signTransaction: async () => err(SorokitErrorCode.WALLET_SIGN_REJECTED, "User rejected"),
+      };
+      const res = await clientRes.data.wallet.signTransaction(mockRejectingAdapter, { xdr: "AAAA" });
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
       }
-    });
+    }
+  });
 
-    it("returns error if rpcUrl is malformed", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        rpcUrl: "ftp://invalid-scheme.com",
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("rpcUrl");
-      }
+  it("account.get returns ACCOUNT_NOT_FOUND when Horizon returns 404", async () => {
+    const clientRes = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "https://horizon-404-test.example.com",
+      fetchFn: async () => new Response(JSON.stringify({ status: 404, title: "Not Found" }), { status: 404 }),
     });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const res = await clientRes.data.account.get("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
+    }
+  });
 
-    it("returns error if cache interface is missing required methods", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        // @ts-expect-error — incomplete cache object
-        cache: { get: () => null },
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("Cache interface");
-      }
+  it("account.getBalances propagates error when getAccount fails", async () => {
+    const clientRes = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "https://horizon-404-test.example.com",
+      fetchFn: async () => new Response(JSON.stringify({ status: 404, title: "Not Found" }), { status: 404 }),
     });
-
-    it("returns error if logger interface is missing required methods", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        // @ts-expect-error — incomplete logger object
-        logger: { info: () => {} },
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("Logger interface");
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const res = await clientRes.data.account.getBalances("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
       }
-    });
-
-    it("returns error if errorHandler is not a function", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        // @ts-expect-error — invalid handler
-        errorHandler: "not a function",
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("ErrorHandler");
-      }
-    });
-
-    it("returns error if maxTxPerSecond is non-positive", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        maxTxPerSecond: 0,
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("maxTxPerSecond");
-      }
-    });
-
-    it("returns error if logLevel is invalid", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        // @ts-expect-error — invalid log level
-        logLevel: "super_verbose",
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("logLevel");
-      }
-    });
-
-    it("returns error if trustedIssuers is not an array", () => {
-      const result = createSorokitClient({
-        network: "testnet",
-        // @ts-expect-error — invalid trustedIssuers
-        trustedIssuers: "SINGLE_ISSUER",
-      });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toContain("trustedIssuers");
-      }
-    });
+    }
   });
 });

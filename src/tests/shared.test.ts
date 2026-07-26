@@ -24,6 +24,7 @@ import {
   err,
   ok,
   SorokitErrorCode,
+  buildError,
 } from "../shared";
 
 describe("shared/utils", () => {
@@ -107,6 +108,31 @@ describe("shared/errors", () => {
 
     it("stringifies objects", () => {
       expect(toMessage({ code: 42 })).toBe('{"code":42}');
+    });
+  });
+
+  describe("buildError", () => {
+    it("constructs a SorokitError without cause", () => {
+      const error = buildError(SorokitErrorCode.UNKNOWN, "msg");
+      expect(error).toEqual({
+        code: "UNKNOWN",
+        message: "msg",
+        cause: undefined,
+      });
+      expect(error).not.toHaveProperty("status");
+    });
+
+    it("constructs a SorokitError with a cause", () => {
+      const rootError = new Error("root cause");
+      const error = buildError(
+        SorokitErrorCode.NETWORK_ERROR,
+        "msg",
+        rootError,
+      );
+      expect(error.code).toBe("NETWORK_ERROR");
+      expect(error.message).toBe("msg");
+      expect(error.cause).toBe(rootError);
+      expect(error).not.toHaveProperty("status");
     });
   });
 
