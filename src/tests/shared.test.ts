@@ -4,6 +4,7 @@ import {
   isBrowser,
   isValidPublicKey,
   isValidContractId,
+  sleep,
   toMessage,
   isNotFoundError,
   isNetworkConnectivityError,
@@ -54,6 +55,16 @@ describe("shared/utils", () => {
     });
   });
 
+  describe("sleep", () => {
+    it("resolves after approximately the requested duration", async () => {
+      const start = Date.now();
+      await sleep(50);
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(40);
+      expect(elapsed).toBeLessThan(200);
+    });
+  });
+
   describe("isValidPublicKey", () => {
     it("accepts a valid 56-char Stellar public key", () => {
       expect(
@@ -74,6 +85,14 @@ describe("shared/utils", () => {
     it("rejects a key that is too short", () => {
       expect(isValidPublicKey("GABCD")).toBe(false);
     });
+
+    it("rejects a 56-char key with lowercase characters", () => {
+      expect(
+        isValidPublicKey(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWnA",
+        ),
+      ).toBe(false);
+    });
   });
 
   describe("isValidContractId", () => {
@@ -92,6 +111,14 @@ describe("shared/utils", () => {
         ),
       ).toBe(false);
     });
+
+    it("rejects a valid-looking ID with lowercase characters", () => {
+      expect(
+        isValidContractId(
+          "CAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWnA",
+        ),
+      ).toBe(false);
+    });
   });
 });
 
@@ -107,6 +134,14 @@ describe("shared/errors", () => {
 
     it("stringifies objects", () => {
       expect(toMessage({ code: 42 })).toBe('{"code":42}');
+    });
+
+    it('returns "null" for null input', () => {
+      expect(toMessage(null)).toBe("null");
+    });
+
+    it("does not throw for undefined input", () => {
+      expect(() => toMessage(undefined)).not.toThrow();
     });
   });
 
@@ -143,6 +178,10 @@ describe("shared/errors", () => {
 
     it('detects "denied"', () => {
       expect(isUserRejection(new Error("Access denied"))).toBe(true);
+    });
+
+    it('detects "user declined"', () => {
+      expect(isUserRejection(new Error("user declined"))).toBe(true);
     });
 
     it("returns false for non-rejection errors", () => {
