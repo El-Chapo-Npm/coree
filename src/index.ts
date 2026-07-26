@@ -50,12 +50,20 @@ export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth } from "./network";
+export { checkNetworkHealth, NetworkSwitcher } from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
   NetworkHealthReport,
   NetworkHealthStatus,
+  CustomNetwork,
+  NetworkOption,
+  NetworkInfo,
+  NetworkStatus,
+  NetworkSwitchListener,
+  NetworkStatusListener,
+  NetworkSwitchUnsubscribe,
+  NetworkSwitcherConfig,
 } from "./network";
 
 // ─── Account types ────────────────────────────────────────────────────────────
