@@ -13,6 +13,16 @@ export { invokeContract } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
 export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
+export { ContractInteractionBuilder } from "./contractInteractionBuilder";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./contractInteractionBuilder";
 export { validateContractAbi } from "./validateContractAbi";
 export { buildContractDeploy } from "./deployContract";
 export {

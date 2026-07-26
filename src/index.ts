@@ -169,6 +169,16 @@ export {
 } from "./soroban/contractEncoding";
 export { parseContractResult } from "./soroban/parseContractResult";
 export { getContractMethods } from "./soroban/contractMetadata";
+export { ContractInteractionBuilder } from "./soroban";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./soroban";
 export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
