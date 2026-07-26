@@ -3051,3 +3051,254 @@ describe("Asset Factories", () => {
     expect(customAsset.getIssuer()).toBe(customIssuer);
   });
 });
+
+// ─── createTransactionBuilder — undo/redo (#139) ─────────────────────────────
+
+import {
+  createTransactionBuilder,
+} from "../transaction/transactionBuilder";
+import type { TransactionOperation } from "../transaction/transactionBuilder";
+
+describe("createTransactionBuilder — undo/redo (#139)", () => {
+  const paymentOp: TransactionOperation = {
+    type: "payment",
+    params: { destination: "GDEST...", amount: "10" },
+  };
+  const trustlineOp: TransactionOperation = {
+    type: "trustline",
+    params: { assetCode: "USDC", assetIssuer: "GISSUER..." },
+  };
+  const createAccountOp: TransactionOperation = {
+    type: "createAccount",
+    params: { destination: "GNEW...", startingBalance: "1" },
+  };
+
+  // ── Basic API ──────────────────────────────────────────────────────────────
+
+  it("starts empty with size 0 and redoSize 0", () => {
+    const builder = createTransactionBuilder();
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([]);
+  });
+
+  it("addOperation appends to the active history", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.size()).toBe(1);
+    expect(builder.getOperations()[0]).toEqual(paymentOp);
+  });
+
+  it("addOperation supports method chaining", () => {
+    const builder = createTransactionBuilder();
+    const returned = builder.addOperation(paymentOp);
+    expect(returned).toBe(builder);
+  });
+
+  it("addOperation stores multiple operations in order", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    expect(builder.size()).toBe(2);
+    const ops = builder.getOperations();
+    expect(ops[0]).toEqual(paymentOp);
+    expect(ops[1]).toEqual(trustlineOp);
+  });
+
+  // ── Undo ──────────────────────────────────────────────────────────────────
+
+  it("undo removes the last operation and returns it", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+
+    const undone = builder.undo();
+
+    expect(undone).toEqual(trustlineOp);
+    expect(builder.size()).toBe(1);
+    expect(builder.getOperations()[0]).toEqual(paymentOp);
+  });
+
+  it("undo returns undefined when history is empty", () => {
+    const builder = createTransactionBuilder();
+    expect(builder.undo()).toBeUndefined();
+  });
+
+  it("undo increments redoSize by 1", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.redoSize()).toBe(0);
+
+    builder.undo();
+
+    expect(builder.redoSize()).toBe(1);
+  });
+
+  it("multiple undos reduce history to zero", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+
+    builder.undo();
+    builder.undo();
+
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(2);
+    expect(builder.getOperations()).toEqual([]);
+  });
+
+  it("undo beyond the beginning keeps returning undefined without throwing", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
+
+    expect(builder.undo()).toBeUndefined();
+    expect(builder.size()).toBe(0);
+  });
+
+  // ── Redo ──────────────────────────────────────────────────────────────────
+
+  it("redo restores the most recently undone operation", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo(); // removes trustlineOp
+
+    const redone = builder.redo();
+
+    expect(redone).toEqual(trustlineOp);
+    expect(builder.size()).toBe(2);
+    expect(builder.getOperations()[1]).toEqual(trustlineOp);
+  });
+
+  it("redo returns undefined when the redo stack is empty", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.redo()).toBeUndefined();
+  });
+
+  it("redo decrements redoSize by 1", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
+    expect(builder.redoSize()).toBe(1);
+
+    builder.redo();
+
+    expect(builder.redoSize()).toBe(0);
+  });
+
+  it("successive redo calls restore operations in LIFO order", () => {
+    const builder = createTransactionBuilder();
+    builder
+      .addOperation(paymentOp)
+      .addOperation(trustlineOp)
+      .addOperation(createAccountOp);
+    builder.undo(); // removes createAccountOp
+    builder.undo(); // removes trustlineOp
+
+    builder.redo(); // restores trustlineOp
+    builder.redo(); // restores createAccountOp
+
+    const ops = builder.getOperations();
+    expect(ops).toHaveLength(3);
+    expect(ops[1]).toEqual(trustlineOp);
+    expect(ops[2]).toEqual(createAccountOp);
+  });
+
+  // ── New addOperation clears redo stack ────────────────────────────────────
+
+  it("addOperation after undo clears the redo stack (linear history)", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo(); // trustlineOp on redo stack
+
+    builder.addOperation(createAccountOp); // should clear redo stack
+
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.redo()).toBeUndefined();
+  });
+
+  it("operations added after clearing redo form the new history", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
+    builder.addOperation(createAccountOp);
+
+    const ops = builder.getOperations();
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toEqual(createAccountOp);
+  });
+
+  // ── Full undo/redo round-trip ─────────────────────────────────────────────
+
+  it("full round-trip: add → undo → redo leaves history unchanged", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+
+    builder.undo();
+    builder.redo();
+
+    expect(builder.size()).toBe(2);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([paymentOp, trustlineOp]);
+  });
+
+  // ── Immutability / isolation ──────────────────────────────────────────────
+
+  it("getOperations returns a frozen snapshot — mutating it does not affect internal state", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+
+    const ops = builder.getOperations() as TransactionOperation[];
+    ops.push(trustlineOp); // mutate the returned snapshot
+
+    expect(builder.size()).toBe(1); // internal state unaffected
+  });
+
+  it("mutating the original operation object does not affect stored history", () => {
+    const mutableOp: TransactionOperation = {
+      type: "payment",
+      params: { amount: "10" },
+    };
+    const builder = createTransactionBuilder();
+    builder.addOperation(mutableOp);
+
+    mutableOp.params.amount = "9999"; // mutate after add
+
+    expect(builder.getOperations()[0].params.amount).toBe("10");
+  });
+
+  // ── clear ─────────────────────────────────────────────────────────────────
+
+  it("clear resets both history and redo stack", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo();
+
+    builder.clear();
+
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([]);
+  });
+
+  it("clear supports method chaining", () => {
+    const builder = createTransactionBuilder();
+    const returned = builder.clear();
+    expect(returned).toBe(builder);
+  });
+
+  // ── Multiple independent builder instances ────────────────────────────────
+
+  it("two builder instances maintain independent state", () => {
+    const b1 = createTransactionBuilder();
+    const b2 = createTransactionBuilder();
+
+    b1.addOperation(paymentOp);
+    b2.addOperation(trustlineOp).addOperation(createAccountOp);
+
+    expect(b1.size()).toBe(1);
+    expect(b2.size()).toBe(2);
+
+    b1.undo();
+    expect(b1.size()).toBe(0);
+    expect(b2.size()).toBe(2); // b2 unaffected
+  });
+});
