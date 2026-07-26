@@ -93,6 +93,24 @@ describe("shared/logger", () => {
 
       infoSpy.mockRestore();
     });
+
+    it("uses custom prefix when provided", () => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+      const logger = createLogger({ logLevel: "info", prefix: "[sorokit:testnet]" });
+
+      logger.info("test message", { operation: "test" });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[sorokit:testnet]",
+        expect.objectContaining({
+          level: "info",
+          message: "test message",
+          operation: "test",
+        }),
+      );
+
+      infoSpy.mockRestore();
+    });
   });
 
   describe("withLogging", () => {
@@ -149,6 +167,19 @@ describe("createSorokitClient logger integration", () => {
     expect(result.status).toBe("ok");
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       "[sorokit]",
+      expect.objectContaining({
+        operation: "client.create",
+        status: "ok",
+        network: "testnet",
+      }),
+    );
+  });
+
+  it("uses custom logPrefix when provided", () => {
+    const result = createSorokitClient({ network: "testnet", logLevel: "info", logPrefix: "[app:testnet]" });
+    expect(result.status).toBe("ok");
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      "[app:testnet]",
       expect.objectContaining({
         operation: "client.create",
         status: "ok",

@@ -110,6 +110,8 @@ export interface SorokitClientConfig {
   debug?: boolean;
   /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
+  /** Custom prefix for log messages. Default: "[sorokit]" */
+  logPrefix?: string;
   /** Default Soroban polling config — can be overridden per-call */
   sorobanPoll?: SorobanPollConfig;
   /** Invoked when estimateFee detects a fee surge (>2x recent median) */
@@ -343,6 +345,7 @@ export function createSorokitClient(
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
+      prefix: config.logPrefix,
     });
   const logger = createTracedLogger(baseLogger, traceId);
 

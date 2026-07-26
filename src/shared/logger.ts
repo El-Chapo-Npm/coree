@@ -36,6 +36,8 @@ export interface LoggerConfig {
   debug?: boolean;
   /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
+  /** Custom prefix for log messages. Default: "[sorokit]" */
+  prefix?: string;
 }
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -137,7 +139,8 @@ export function createLogger(
 
   const logLevel = resolveLogLevel(config);
   if (logLevel === "off") return noopLogger;
-  return createConsoleLogger(logLevel);
+  const prefix = typeof config === "object" ? config?.prefix : undefined;
+  return createConsoleLogger(logLevel, prefix);
 }
 
 /**
