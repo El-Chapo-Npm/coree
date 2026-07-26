@@ -20,6 +20,7 @@ interface ContractMetadataOptions {
 }
 
 const memoryCache = new Map<string, MetadataCacheEntry>();
+const MAX_MEMORY_CACHE_ENTRIES = 100;
 
 function metadataCacheKey(contractId: string): string {
   return `sorokit:contract-metadata:${contractId}`;
@@ -55,7 +56,27 @@ function setCachedMethods(
   const entry: MetadataCacheEntry = { methods, expiresAt };
 
   options?.cache?.set(key, entry, ttlMs);
+
+  // Enforce memory cache size limit
+  if (!memoryCache.has(key) && memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value as string | undefined;
+    if (oldestKey) memoryCache.delete(oldestKey);
+  }
+
   memoryCache.set(key, entry);
+}
+
+/**
+ * Manually invalidate cached metadata for a contract ID.
+ * Clears both the in-memory cache and an optional external cache.
+ */
+export function invalidateContractCache(
+  contractId: string,
+  cache?: SorokitCache,
+): void {
+  const key = metadataCacheKey(contractId);
+  memoryCache.delete(key);
+  cache?.invalidate(key);
 }
 
 function isMetadataCacheEntry(value: unknown): value is MetadataCacheEntry {
