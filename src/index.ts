@@ -66,7 +66,7 @@ export type {
   NetworkSwitcherConfig,
 } from "./network";
 
-// ─── Account types ────────────────────────────────────────────────────────────
+// ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { getAccountsBatch } from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
@@ -74,12 +74,14 @@ export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { setSponsor, removeSponsor } from "./account/sponsorship";
 export type {
   AccountInfo,
   AssetBalance,
   BalanceAlert,
   BalanceAlertCondition,
   BalanceAlertRule,
+  SponsorshipResult,
 } from "./account/types";
 
 // ─── Transaction validation ───────────────────────────────────────────────────

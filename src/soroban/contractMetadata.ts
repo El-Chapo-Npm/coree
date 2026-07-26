@@ -312,7 +312,7 @@ export async function getContractMethods(
   try {
     const rpc = createSorobanServer(rpcUrl);
     const contract = new Contract(contractId);
-    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint());
+    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
     const instanceEntry = instanceResult.entries[0];
 
     if (!instanceEntry) {
@@ -332,7 +332,7 @@ export async function getContractMethods(
     const codeKey = xdr.LedgerKey.contractCode(
       new xdr.LedgerKeyContractCode({ hash: wasmHashResult.data }),
     );
-    const codeResult = await rpc.getLedgerEntries(codeKey);
+    const codeResult = await rpc.getLedgerEntries(codeKey as any);
     const codeEntry = codeResult.entries[0];
 
     if (!codeEntry) {

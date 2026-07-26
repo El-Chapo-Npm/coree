@@ -22,8 +22,8 @@ import {
 } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import type {
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import type {
   MemoParams,
   PaymentParams,
   TrustlineParams,

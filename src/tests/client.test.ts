@@ -143,4 +143,116 @@ describe("createSorokitClient", () => {
       await stream.next();
     }
   });
+
+  describe("Client Configuration Validation (#137)", () => {
+    it("returns error if config is null or not an object", () => {
+      // @ts-expect-error — testing runtime check
+      const result = createSorokitClient(null);
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+      }
+    });
+
+    it("returns error if horizonUrl is malformed", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        horizonUrl: "not-a-valid-url",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("horizonUrl");
+      }
+    });
+
+    it("returns error if rpcUrl is malformed", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        rpcUrl: "ftp://invalid-scheme.com",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("rpcUrl");
+      }
+    });
+
+    it("returns error if cache interface is missing required methods", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        // @ts-expect-error — incomplete cache object
+        cache: { get: () => null },
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("Cache interface");
+      }
+    });
+
+    it("returns error if logger interface is missing required methods", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        // @ts-expect-error — incomplete logger object
+        logger: { info: () => {} },
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("Logger interface");
+      }
+    });
+
+    it("returns error if errorHandler is not a function", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        // @ts-expect-error — invalid handler
+        errorHandler: "not a function",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("ErrorHandler");
+      }
+    });
+
+    it("returns error if maxTxPerSecond is non-positive", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        maxTxPerSecond: 0,
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("maxTxPerSecond");
+      }
+    });
+
+    it("returns error if logLevel is invalid", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        // @ts-expect-error — invalid log level
+        logLevel: "super_verbose",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("logLevel");
+      }
+    });
+
+    it("returns error if trustedIssuers is not an array", () => {
+      const result = createSorokitClient({
+        network: "testnet",
+        // @ts-expect-error — invalid trustedIssuers
+        trustedIssuers: "SINGLE_ISSUER",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(result.error.message).toContain("trustedIssuers");
+      }
+    });
+  });
 });

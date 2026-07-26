@@ -5,12 +5,14 @@ export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
+export { setSponsor, removeSponsor } from "./sponsorship";
 export type {
   AccountInfo,
   AssetBalance,
   BalanceAlert,
   BalanceAlertRule,
   BalanceAlertCondition,
+  SponsorshipResult,
 } from "./types";
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";

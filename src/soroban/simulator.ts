@@ -130,8 +130,8 @@ export class SorobanSimulator {
    * Returns the configured result for the invoked method.
    */
   async simulateTransaction(
-    tx: TransactionBuilder.Transaction,
-  ): Promise<SorobanRpc.Api.SimulateTransactionResult> {
+    tx: any,
+  ): Promise<any> {
     await this.delay();
 
     const method = this.extractMethodName(tx);
@@ -143,14 +143,13 @@ export class SorobanSimulator {
         error: result.error,
         events: [],
         minResourceFee: result.minResourceFee ?? "100",
-      } as SorobanRpc.Api.SimulateTransactionResult;
+      };
     }
 
-    const footprintBase64 = MOCK_FOOTPRINT;
-    const footprint = xdr.LedgerFootprint.fromXDR(footprintBase64, "base64");
+    const footprint = new xdr.LedgerFootprint({ readOnly: [], readWrite: [] });
 
     return {
-      status: SorobanRpc.Api.SimulationStatus.SUCCESS,
+      status: (SorobanRpc.Api as any)?.SimulationStatus?.SUCCESS ?? "SUCCESS",
       result: {
         retval: result.retval ?? xdr.ScVal.scvVoid(),
         auth: [],
@@ -167,23 +166,24 @@ export class SorobanSimulator {
         },
         refundableFee: 100,
       },
-    } as unknown as SorobanRpc.Api.SimulateTransactionResult;
+    };
   }
 
   /**
    * Submit a transaction — records the submission and returns a mock hash.
    */
   async sendTransaction(
-    _tx: TransactionBuilder.Transaction,
-  ): Promise<SorobanRpc.Api.SendTransactionResponse> {
+    _tx: any,
+  ): Promise<any> {
     await this.delay();
     this.simulatedTxCount++;
     const hash = `sim_${Date.now().toString(36)}_${this.simulatedTxCount}`;
+    const status = (SorobanRpc.Api as any).SendTransactionStatus?.PENDING ?? "PENDING";
     return {
-      status: SorobanRpc.Api.SendTransactionStatus.PENDING,
+      status,
       hash,
       txId: `tx_${hash}`,
-    } as unknown as SorobanRpc.Api.SendTransactionResponse;
+    };
   }
 
   /**
@@ -191,10 +191,10 @@ export class SorobanSimulator {
    */
   async getTransaction(
     hash: string,
-  ): Promise<SorobanRpc.Api.GetTransactionResponse> {
+  ): Promise<any> {
     await this.delay();
     return {
-      status: SorobanRpc.Api.GetTransactionStatus.SUCCESS,
+      status: (SorobanRpc.Api as any)?.GetTransactionStatus?.SUCCESS ?? "SUCCESS",
       applicationOrder: 1,
       feeBump: false,
       envelopeXdr: "",
@@ -202,7 +202,7 @@ export class SorobanSimulator {
       ledger: this.options.ledgerSeq,
       createdAt: Math.floor(Date.now() / 1000) - 10,
       hash,
-    } as unknown as SorobanRpc.Api.GetTransactionResponse;
+    };
   }
 
   /**
@@ -211,7 +211,7 @@ export class SorobanSimulator {
    */
   async getLedgerEntries(
     _keys: xdr.LedgerKey[],
-  ): Promise<SorobanRpc.Api.GetLedgerEntriesResponse> {
+  ): Promise<any> {
     await this.delay();
     return { entries: [], latestLedger: this.options.ledgerSeq };
   }
@@ -219,18 +219,18 @@ export class SorobanSimulator {
   /**
    * Get the latest ledger sequence number.
    */
-  async getLatestLedger(): Promise<SorobanRpc.Api.GetLatestLedgerResponse> {
+  async getLatestLedger(): Promise<any> {
     await this.delay();
-    return { sequence: this.options.ledgerSeq };
+    return { sequence: this.options.ledgerSeq, id: "mock_id", protocolVersion: 20 };
   }
 
   /* ------------------------------------------------------------------ */
   /*  Helpers                                                            */
   /* ------------------------------------------------------------------ */
 
-  private extractMethodName(tx: TransactionBuilder.Transaction): string | null {
+  private extractMethodName(tx: any): string | null {
     try {
-      const op = tx.operations.find((o) => o.type === "invokeHostFunction");
+      const op = tx.operations?.find((o: any) => o.type === "invokeHostFunction");
       if (!op) return null;
       const hostFn = (op as any).func;
       if (!hostFn || hostFn.arm() !== "invokeContract") return null;

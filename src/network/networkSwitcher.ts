@@ -181,7 +181,7 @@ export class NetworkSwitcher {
       custom: c,
     }))];
     if (this._current.network === name) {
-      return this.switchTo("testnet");
+      this.switchTo("testnet");
     }
     return ok(undefined);
   }
