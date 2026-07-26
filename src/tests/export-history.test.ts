@@ -203,6 +203,7 @@ describe("exportTransactionHistory", () => {
       format: "json",
       fromDate: "2026-01-10T00:00:00Z",
       toDate: "2026-01-20T00:00:00Z",
+      order: "asc",
     });
 
     expect(result.status).toBe("ok");

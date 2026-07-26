@@ -110,7 +110,7 @@ export async function snapshotContractState(
   try {
     const rpc = createSorobanServer(rpcUrl);
     const contract = new Contract(contractId);
-    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint());
+    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
     const instanceEntry = instanceResult.entries[0];
 
     const state: Record<string, unknown> = instanceEntry

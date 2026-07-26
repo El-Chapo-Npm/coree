@@ -135,64 +135,210 @@ export async function retryWithBackoff<T>(
 }
 
 /**
- * Token bucket rate limiter.
- * Allows up to `maxRequestsPerSecond` calls to acquire() per second.
- * Excess calls are queued and resolved as tokens refill.
+ * Per-endpoint rate limiter configuration options.
+ */
+export interface EndpointRateLimitConfig {
+  /** Default rate limit (requests per second) for unspecified endpoints. Default: 10 */
+  defaultLimit?: number;
+  /** Per-endpoint rate limits (requests per second) keyed by endpoint name */
+  endpoints?: Record<string, number>;
+}
+
+/**
+ * Reasonable default per-endpoint rate limits (requests per second).
+ */
+export const DEFAULT_ENDPOINT_RATE_LIMITS: Record<string, number> = {
+  "contract.simulate": 5,
+  "contract.invoke": 5,
+  "account.get": 20,
+  "account.balances": 20,
+  "transaction.submit": 10,
+};
+
+interface BucketState {
+  capacity: number;
+  tokens: number;
+  lastRefill: number;
+  refillRate: number; // tokens per ms
+  queue: Array<() => void>;
+  drainTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Token bucket rate limiter supporting per-endpoint quotas, runtime overrides,
+ * and rate-limit header parsing (X-Rate-Limit-*).
  */
 export class TokenBucketRateLimiter {
-  private tokens: number;
-  private lastRefill: number;
-  private readonly capacity: number;
-  private readonly refillRate: number; // tokens per ms
-  private readonly queue: Array<() => void>;
-  private drainTimer: ReturnType<typeof setTimeout> | null = null;
+  private defaultLimit: number;
+  private endpointLimits: Map<string, number>;
+  private buckets: Map<string, BucketState>;
 
-  constructor(maxRequestsPerSecond: number) {
-    if (maxRequestsPerSecond <= 0) {
-      throw new Error("maxRequestsPerSecond must be a positive number");
+  constructor(limitOrConfig: number | EndpointRateLimitConfig = 10) {
+    this.endpointLimits = new Map<string, number>();
+    this.buckets = new Map<string, BucketState>();
+
+    if (typeof limitOrConfig === "number") {
+      if (limitOrConfig <= 0) {
+        throw new Error("maxRequestsPerSecond must be a positive number");
+      }
+      this.defaultLimit = limitOrConfig;
+    } else {
+      const defaultLimit = limitOrConfig.defaultLimit ?? 10;
+      if (defaultLimit <= 0) {
+        throw new Error("defaultLimit must be a positive number");
+      }
+      this.defaultLimit = defaultLimit;
+
+      if (limitOrConfig.endpoints) {
+        for (const [ep, limit] of Object.entries(limitOrConfig.endpoints)) {
+          if (limit > 0) {
+            this.endpointLimits.set(ep, limit);
+          }
+        }
+      }
     }
-    this.capacity = maxRequestsPerSecond;
-    this.tokens = maxRequestsPerSecond;
-    this.lastRefill = Date.now();
-    this.refillRate = maxRequestsPerSecond / 1000;
-    this.queue = [];
+
+    // Populate standard defaults if not already overridden
+    for (const [ep, limit] of Object.entries(DEFAULT_ENDPOINT_RATE_LIMITS)) {
+      if (!this.endpointLimits.has(ep)) {
+        this.endpointLimits.set(ep, limit);
+      }
+    }
   }
 
-  private refill(): void {
+  private getBucket(endpoint: string = "default"): BucketState {
+    let bucket = this.buckets.get(endpoint);
+    if (!bucket) {
+      const limit = this.endpointLimits.get(endpoint) ?? this.defaultLimit;
+      bucket = {
+        capacity: limit,
+        tokens: limit,
+        lastRefill: Date.now(),
+        refillRate: limit / 1000,
+        queue: [],
+        drainTimer: null,
+      };
+      this.buckets.set(endpoint, bucket);
+    }
+    return bucket;
+  }
+
+  private refill(bucket: BucketState): void {
     const now = Date.now();
-    this.tokens = Math.min(this.capacity, this.tokens + (now - this.lastRefill) * this.refillRate);
-    this.lastRefill = now;
+    bucket.tokens = Math.min(
+      bucket.capacity,
+      bucket.tokens + (now - bucket.lastRefill) * bucket.refillRate,
+    );
+    bucket.lastRefill = now;
   }
 
-  private scheduleDrain(): void {
-    if (this.drainTimer !== null) return;
-    const msUntilToken = Math.ceil((1 - this.tokens) / this.refillRate);
-    this.drainTimer = setTimeout(() => {
-      this.drainTimer = null;
-      this.drain();
+  private scheduleDrain(bucket: BucketState): void {
+    if (bucket.drainTimer !== null) return;
+    const msUntilToken = Math.ceil((1 - bucket.tokens) / bucket.refillRate);
+    bucket.drainTimer = setTimeout(() => {
+      bucket.drainTimer = null;
+      this.drain(bucket);
     }, Math.max(0, msUntilToken));
   }
 
-  private drain(): void {
-    this.refill();
-    while (this.queue.length > 0 && this.tokens >= 1) {
-      this.tokens -= 1;
-      this.queue.shift()!();
+  private drain(bucket: BucketState): void {
+    this.refill(bucket);
+    while (bucket.queue.length > 0 && bucket.tokens >= 1) {
+      bucket.tokens -= 1;
+      bucket.queue.shift()!();
     }
-    if (this.queue.length > 0) this.scheduleDrain();
+    if (bucket.queue.length > 0) this.scheduleDrain(bucket);
   }
 
-  /** Acquire a token, waiting if the bucket is empty. */
-  async acquire(): Promise<void> {
-    this.refill();
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
+  /**
+   * Acquire a token for an optional endpoint, waiting if the bucket is empty.
+   */
+  async acquire(endpoint: string = "default"): Promise<void> {
+    const bucket = this.getBucket(endpoint);
+    this.refill(bucket);
+    if (bucket.tokens >= 1) {
+      bucket.tokens -= 1;
       return;
     }
     return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-      this.scheduleDrain();
+      bucket.queue.push(resolve);
+      this.scheduleDrain(bucket);
     });
+  }
+
+  /**
+   * Get the current configured rate limit for an endpoint or default limit.
+   */
+  getEndpointLimit(endpoint: string = "default"): number {
+    return this.endpointLimits.get(endpoint) ?? this.defaultLimit;
+  }
+
+  /**
+   * Override or dynamically set the rate limit for a specific endpoint at runtime.
+   */
+  setEndpointLimit(endpoint: string, limitPerSecond: number): void {
+    if (limitPerSecond <= 0) return;
+    this.endpointLimits.set(endpoint, limitPerSecond);
+    const bucket = this.buckets.get(endpoint);
+    if (bucket) {
+      bucket.capacity = limitPerSecond;
+      bucket.refillRate = limitPerSecond / 1000;
+      bucket.tokens = Math.min(bucket.tokens, limitPerSecond);
+    }
+  }
+
+  /**
+   * Process rate limit headers (X-Rate-Limit-*) from RPC or Horizon HTTP responses
+   * and update the endpoint rate bucket dynamically.
+   */
+  handleResponseHeaders(
+    endpoint: string,
+    headers: Headers | Record<string, string>,
+  ): void {
+    const getHeader = (name: string): string | null => {
+      if (typeof (headers as Headers).get === "function") {
+        return (headers as Headers).get(name);
+      }
+      const record = headers as Record<string, string>;
+      const key = Object.keys(record).find(
+        (k) => k.toLowerCase() === name.toLowerCase(),
+      );
+      return key && record[key] !== undefined ? record[key]! : null;
+    };
+
+    const limitHeader =
+      getHeader("x-rate-limit-limit") || getHeader("x-ratelimit-limit");
+    if (limitHeader) {
+      const parsedLimit = parseInt(limitHeader, 10);
+      if (!isNaN(parsedLimit) && parsedLimit > 0) {
+        this.setEndpointLimit(endpoint, parsedLimit);
+      }
+    }
+
+    const remainingHeader =
+      getHeader("x-rate-limit-remaining") || getHeader("x-ratelimit-remaining");
+    if (remainingHeader) {
+      const parsedRemaining = parseInt(remainingHeader, 10);
+      if (!isNaN(parsedRemaining) && parsedRemaining >= 0) {
+        const bucket = this.getBucket(endpoint);
+        bucket.tokens = Math.min(bucket.tokens, parsedRemaining);
+      }
+    }
+
+    const resetHeader =
+      getHeader("x-rate-limit-reset") || getHeader("x-ratelimit-reset");
+    if (resetHeader) {
+      const parsedReset = parseInt(resetHeader, 10);
+      if (!isNaN(parsedReset) && parsedReset > 0) {
+        const bucket = this.getBucket(endpoint);
+        // If reset is given in relative seconds or unix timestamp
+        const nowSec = Math.floor(Date.now() / 1000);
+        const diffSec = parsedReset > nowSec ? parsedReset - nowSec : parsedReset;
+        if (diffSec > 0 && bucket.tokens < 1) {
+          bucket.lastRefill = Date.now();
+        }
+      }
+    }
   }
 }
 

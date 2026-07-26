@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { xdr } from "@stellar/stellar-sdk";
-import { SorobanSimulator } from "../../soroban/simulator";
-import { createSorobanServer, setSorobanSimulator } from "../../shared/serverFactory";
+import { SorobanSimulator } from "../soroban/simulator";
+import { createSorobanServer, setSorobanSimulator } from "../shared/serverFactory";
 
 describe("SorobanSimulator", () => {
   it("creates a simulator with default rpc URL", () => {
