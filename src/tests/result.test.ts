@@ -154,3 +154,48 @@ describe("result wrapper immutability (#286)", () => {
     });
   });
 });
+
+describe("SorokitErrorCode exhaustive membership (#268)", () => {
+  it("every enum member has a string value that exactly matches its key name", () => {
+    for (const [key, value] of Object.entries(SorokitErrorCode)) {
+      expect(value).toBe(key);
+    }
+  });
+
+  it("enum contains all expected wallet error codes", () => {
+    const walletCodes = [
+      "WALLET_NOT_FOUND",
+      "WALLET_NOT_CONNECTED",
+      "WALLET_CONNECT_FAILED",
+      "WALLET_SIGN_REJECTED",
+      "WALLET_SIGN_FAILED",
+      "WALLET_BROWSER_ONLY",
+    ];
+    for (const code of walletCodes) {
+      expect(SorokitErrorCode[code as keyof typeof SorokitErrorCode]).toBe(code);
+    }
+  });
+
+  it("enum contains all expected contract error codes", () => {
+    const contractCodes = [
+      "CONTRACT_INVOKE_FAILED",
+      "CONTRACT_READ_FAILED",
+      "CONTRACT_PREPARE_FAILED",
+      "CONTRACT_SIMULATE_FAILED",
+    ];
+    for (const code of contractCodes) {
+      expect(SorokitErrorCode[code as keyof typeof SorokitErrorCode]).toBe(code);
+    }
+  });
+
+  it("enum contains all expected transaction error codes", () => {
+    const txCodes = ["TX_BUILD_FAILED", "TX_SIMULATE_FAILED", "TX_SUBMIT_FAILED", "TX_NOT_FOUND"];
+    for (const code of txCodes) {
+      expect(SorokitErrorCode[code as keyof typeof SorokitErrorCode]).toBe(code);
+    }
+  });
+
+  it("UNKNOWN is the generic fallback code", () => {
+    expect(SorokitErrorCode.UNKNOWN).toBe("UNKNOWN");
+  });
+});
