@@ -24,9 +24,7 @@ export {
   signTransactionOffline,
 } from "./wallet";
 export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
-export { FreighterAdapter } from "./wallet/adapters/freighter";
-export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { XBullAdapter } from "./wallet/adapters/xbull";
+export { FreighterAdapter, LobstrAdapter, XBullAdapter } from "./wallet/adapters";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export { WalletType } from "./wallet/types";
