@@ -164,6 +164,17 @@ describe("wallet module functions", () => {
     }
   });
 
+  it("emptyWalletState() returns a fresh object reference on every call", () => {
+    const result1 = emptyWalletState();
+    const result2 = emptyWalletState();
+    expect(result1.status).toBe("ok");
+    expect(result2.status).toBe("ok");
+    if (result1.status === "ok" && result2.status === "ok") {
+      expect(result1).not.toBe(result2);
+      expect(result1.data).not.toBe(result2.data);
+    }
+  });
+
   it("connectWallet() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
     const result = await connectWallet(new FreighterAdapter(mockKit()));
     expect(result.status).toBe("error");
