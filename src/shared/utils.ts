@@ -239,7 +239,9 @@ export class TokenBucketRateLimiter {
         throw new Error("defaultLimit must be a positive number");
       }
       this.defaultLimit = defaultLimit;
-      this.onMetricEvent = limitOrConfig.onMetricEvent;
+      if (limitOrConfig.onMetricEvent !== undefined) {
+        this.onMetricEvent = limitOrConfig.onMetricEvent;
+      }
 
       if (limitOrConfig.endpoints) {
         for (const [ep, limit] of Object.entries(limitOrConfig.endpoints)) {

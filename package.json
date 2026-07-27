@@ -28,7 +28,8 @@
     "test:watch": "vitest",
     "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "validate:exports": "node scripts/validate-exports.js"
   },
   "keywords": [
     "stellar",

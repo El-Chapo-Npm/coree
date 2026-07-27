@@ -262,7 +262,7 @@ export type {
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
-export type { LogLevel, LoggerConfig, SorokitLogger } from "./shared/logger";
+export type { LogLevel, LoggerOptions, SorokitLogger } from "./shared/logger";
 export {
   SorokitErrorCode,
   assertOk,

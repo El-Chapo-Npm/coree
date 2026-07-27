@@ -501,7 +501,7 @@ export function createSorokitClient(
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
-  const logger = createTracedLogger(baseLogger, traceId);
+  const logger = createTracedLogger(baseLogger, { traceId });
 
   // Set up distributed tracing with correlation IDs (#212).
   const traceContext = createTraceContext(traceId);
@@ -836,7 +836,7 @@ export function createSorokitClient(
           errorHandler,
           { functionName: "soroban.simulate" },
           () =>
-            withLogging(logger, "soroban.simulate", undefined, () =>
+            withLogging(logger, "soroban.simulate", {}, () =>
               simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
             ),
         ).then(applyTx),
