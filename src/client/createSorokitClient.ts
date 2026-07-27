@@ -41,7 +41,7 @@ import type {
 import { readContract } from "../soroban/readContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
-import { executeContract } from "../soroban/executeContract";
+import { executeContract, validateSorobanPollConfig } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { createContractStateTracker } from "../soroban/contractStateTracker";
@@ -119,7 +119,10 @@ export interface SorokitClientConfig {
   debug?: boolean;
   /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
-  /** Default Soroban polling config — can be overridden per-call */
+  /**
+   * Default Soroban polling config — can be overridden per-call.
+   * Defaults to DEFAULT_POLL_MAX_ATTEMPTS (20) and DEFAULT_POLL_INTERVAL_MS (1500).
+   */
   sorobanPoll?: SorobanPollConfig;
   /** Invoked when estimateFee detects a fee surge (>2x recent median) */
   onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
@@ -455,6 +458,11 @@ export function validateClientConfig(
         "trustedIssuers must be an array of public keys",
       );
     }
+  }
+
+  if (config.sorobanPoll) {
+    const pollErr = validateSorobanPollConfig(config.sorobanPoll);
+    if (pollErr) return pollErr;
   }
 
   return ok(undefined);

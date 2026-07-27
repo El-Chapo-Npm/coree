@@ -2800,3 +2800,44 @@ describe("validateContractData (#141)", () => {
     expect(invalid.valid).toBe(false);
   });
 });
+
+describe("executeContract sorobanPoll validation (#285)", () => {
+  it("returns CONTRACT_INVOKE_FAILED when maxAttempts is 0 or negative", async () => {
+    const res0 = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { maxAttempts: 0 },
+    );
+    expect(res0.status).toBe("error");
+    if (res0.status === "error") {
+      expect(res0.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+      expect(res0.error.message).toBe("sorobanPoll.maxAttempts must be a positive integer.");
+    }
+
+    const resNeg = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { maxAttempts: -1 },
+    );
+    expect(resNeg.status).toBe("error");
+    if (resNeg.status === "error") {
+      expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+    }
+  });
+
+  it("returns CONTRACT_INVOKE_FAILED when intervalMs is negative", async () => {
+    const resNeg = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { intervalMs: -100 },
+    );
+    expect(resNeg.status).toBe("error");
+    if (resNeg.status === "error") {
+      expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+      expect(resNeg.error.message).toBe("sorobanPoll.intervalMs must be a non-negative number.");
+    }
+  });
+});

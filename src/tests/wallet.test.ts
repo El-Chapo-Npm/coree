@@ -220,6 +220,41 @@ describe("wallet module functions", () => {
     });
   });
 
+  describe("connectWallet empty public key validation (#267)", () => {
+    it("returns WALLET_CONNECT_FAILED when adapter resolves with ok('')", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+      vi.spyOn(adapter, "connect").mockResolvedValue(ok(""));
+
+      const result = await connectWallet(adapter);
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+        expect(result.error.message).toBe("Wallet returned an empty public key.");
+      }
+    });
+
+    it("returns ok WalletState when adapter resolves with a valid key", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+      vi.spyOn(adapter, "connect").mockResolvedValue(
+        ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+      );
+
+      const result = await connectWallet(adapter);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual({
+          connected: true,
+          publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+          walletType: WalletType.FREIGHTER,
+        });
+      }
+    });
+  });
+
   it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
     const result = await signTransaction(new FreighterAdapter(mockKit()), {
       transactionXdr: "some-xdr",
