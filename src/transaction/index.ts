@@ -101,6 +101,13 @@ export {
   TRANSACTION_CONTEXT_TTL_MS,
 } from "./transactionContext";
 export type { TransactionBuilderContext } from "./transactionContext";
+export {
+  createTransactionBuilder,
+} from "./transactionBuilder";
+export type {
+  TransactionBuilder,
+  TransactionOperation,
+} from "./transactionBuilder";
 export type {
   TransactionResult,
   TransactionStatus,

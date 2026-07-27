@@ -31,3 +31,4 @@ export type {
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";
 export type { AccountStreamConfig } from "./streamAccount";
+
