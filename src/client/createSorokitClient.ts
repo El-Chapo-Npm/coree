@@ -59,7 +59,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
 import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
 import type { ErrorCodeTransformer } from "../shared/errors";
-import { TokenBucketRateLimiter } from "../shared/utils";
+import { SDK_VERSION } from "../shared/constants";
 import type { NetworkType } from "../network/config";
 import type {
   WalletAdapter,
@@ -141,6 +141,8 @@ export interface SorokitClientConfig {
 // ─── Client interface ─────────────────────────────────────────────────────────
 
 export interface SorokitClient {
+  /** SDK version string from package.json */
+  readonly version: string;
   /** Resolved network configuration for this client instance */
   readonly networkConfig: ResolvedNetworkConfig;
   /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
@@ -326,6 +328,8 @@ export interface SorokitClient {
   readonly network: {
     /** Return the resolved network config for this client instance */
     getConfig(): ResolvedNetworkConfig;
+    /** Return the network type identifier string (e.g. "testnet", "mainnet", "futurenet") */
+    getId(): NetworkType;
   };
 }
 
@@ -547,6 +551,7 @@ export function createSorokitClient(
   }
 
   const client: SorokitClient = {
+    version: SDK_VERSION,
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
@@ -918,6 +923,7 @@ export function createSorokitClient(
 
     network: {
       getConfig: () => networkConfig,
+      getId: () => config.network,
     },
   };
 

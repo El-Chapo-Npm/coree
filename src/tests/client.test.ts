@@ -94,11 +94,36 @@ describe("createSorokitClient", () => {
     }
   });
 
+  it("exposes version property matching package version", () => {
+    const result = createSorokitClient({ network: "testnet" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.version).toBe("0.1.0");
+    }
+  });
+
   it("network.getConfig() returns the resolved config", () => {
     const result = createSorokitClient({ network: "testnet" });
     if (result.status === "ok") {
       const config = result.data.network.getConfig();
       expect(config).toEqual(result.data.networkConfig);
+    }
+  });
+
+  it("network.getId() returns the network identifier string", () => {
+    const testnetClient = createSorokitClient({ network: "testnet" });
+    if (testnetClient.status === "ok") {
+      expect(testnetClient.data.network.getId()).toBe("testnet");
+    }
+
+    const mainnetClient = createSorokitClient({ network: "mainnet" });
+    if (mainnetClient.status === "ok") {
+      expect(mainnetClient.data.network.getId()).toBe("mainnet");
+    }
+
+    const futurenetClient = createSorokitClient({ network: "futurenet" });
+    if (futurenetClient.status === "ok") {
+      expect(futurenetClient.data.network.getId()).toBe("futurenet");
     }
   });
 
