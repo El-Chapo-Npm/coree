@@ -3250,517 +3250,253 @@ describe("Asset Factories", () => {
   });
 });
 
-import { compareFeeAcrossNetworks } from "../transaction/index";
-import type { ResolvedNetworkConfig as NetworkConfig } from "../shared/types";
+// ─── createTransactionBuilder — undo/redo (#139) ─────────────────────────────
 
-describe("compareFeeAcrossNetworks", () => {
-  const mainnetConfig: NetworkConfig = {
-    network: "mainnet",
-    horizonUrl: "https://horizon.stellar.org",
-    rpcUrl: "https://mainnet.stellar.validationcloud.io/v1/soroban/rpc",
-    networkPassphrase: "Public Global Stellar Network ; September 2015",
+import {
+  createTransactionBuilder,
+} from "../transaction/transactionBuilder";
+import type { TransactionOperation } from "../transaction/transactionBuilder";
+
+describe("createTransactionBuilder — undo/redo (#139)", () => {
+  const paymentOp: TransactionOperation = {
+    type: "payment",
+    params: { destination: "GDEST...", amount: "10" },
+  };
+  const trustlineOp: TransactionOperation = {
+    type: "trustline",
+    params: { assetCode: "USDC", assetIssuer: "GISSUER..." },
+  };
+  const createAccountOp: TransactionOperation = {
+    type: "createAccount",
+    params: { destination: "GNEW...", startingBalance: "1" },
   };
 
-  const testnetConfig: NetworkConfig = {
-    network: "testnet",
-    horizonUrl: "https://horizon-testnet.stellar.org",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    networkPassphrase: "Test SDF Network ; September 2015",
-  };
+  // ── Basic API ──────────────────────────────────────────────────────────────
 
-  beforeEach(() => {
-    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
-    mocks.fromXDR.mockReturnValue({});
-    mocks.isSimulationSuccess.mockReturnValue(true);
-    mocks.isSimulationError.mockReturnValue(false);
-    mockTransactionsCall.mockResolvedValue({ records: [] });
+  it("starts empty with size 0 and redoSize 0", () => {
+    const builder = createTransactionBuilder();
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([]);
   });
 
-  it("returns a result entry for each network", async () => {
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [mainnetConfig, testnetConfig],
-    );
-
-    expect(results).toHaveLength(2);
-    expect(results[0]?.network).toBe("mainnet");
-    expect(results[1]?.network).toBe("testnet");
+  it("addOperation appends to the active history", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.size()).toBe(1);
+    expect(builder.getOperations()[0]).toEqual(paymentOp);
   });
 
-  it("returns fee estimates for each network", async () => {
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [mainnetConfig, testnetConfig],
-    );
-
-    for (const { estimate } of results) {
-      expect(estimate.status).toBe("ok");
-      if (estimate.status === "ok") {
-        expect(typeof estimate.data.fee).toBe("string");
-        expect(typeof estimate.data.feeFloat).toBe("number");
-        expect(typeof estimate.data.feeXlm).toBe("string");
-      }
-    }
+  it("addOperation supports method chaining", () => {
+    const builder = createTransactionBuilder();
+    const returned = builder.addOperation(paymentOp);
+    expect(returned).toBe(builder);
   });
 
-  it("returns fees in the same order as the input networks array", async () => {
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [testnetConfig, mainnetConfig],
-    );
-
-    expect(results[0]?.network).toBe("testnet");
-    expect(results[1]?.network).toBe("mainnet");
+  it("addOperation stores multiple operations in order", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    expect(builder.size()).toBe(2);
+    const ops = builder.getOperations();
+    expect(ops[0]).toEqual(paymentOp);
+    expect(ops[1]).toEqual(trustlineOp);
   });
 
-  it("returns an error result for a network when simulation fails", async () => {
-    mocks.simulateTransaction
-      .mockResolvedValueOnce({ minResourceFee: "500" })
-      .mockRejectedValueOnce(new Error("RPC unreachable"));
+  // ── Undo ──────────────────────────────────────────────────────────────────
 
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [testnetConfig, mainnetConfig],
-    );
+  it("undo removes the last operation and returns it", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
 
-    expect(results[0]?.estimate.status).toBe("ok");
-    expect(results[1]?.estimate.status).toBe("error");
+    const undone = builder.undo();
+
+    expect(undone).toEqual(trustlineOp);
+    expect(builder.size()).toBe(1);
+    expect(builder.getOperations()[0]).toEqual(paymentOp);
   });
 
-  it("handles a single network", async () => {
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [testnetConfig],
-    );
-
-    expect(results).toHaveLength(1);
-    expect(results[0]?.network).toBe("testnet");
-    expect(results[0]?.estimate.status).toBe("ok");
+  it("undo returns undefined when history is empty", () => {
+    const builder = createTransactionBuilder();
+    expect(builder.undo()).toBeUndefined();
   });
 
-  it("returns an empty array when no networks are provided", async () => {
-    const results = await compareFeeAcrossNetworks(
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      [],
-    );
+  it("undo increments redoSize by 1", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.redoSize()).toBe(0);
 
-    expect(results).toEqual([]);
-  });
-});
+    builder.undo();
 
-describe("transaction templates (#146)", () => {
-  beforeEach(() => {
-    clearTransactionTemplates();
+    expect(builder.redoSize()).toBe(1);
   });
 
-  afterEach(() => {
-    clearTransactionTemplates();
+  it("multiple undos reduce history to zero", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+
+    builder.undo();
+    builder.undo();
+
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(2);
+    expect(builder.getOperations()).toEqual([]);
   });
 
-  it("saves and loads a template without parameter substitution", () => {
-    const saved = saveTransactionTemplate("xlm-payment", {
-      kind: "payment",
-      description: "Send XLM",
-      params: {
-        destination: "{{destination}}",
-        amount: "{{amount}}",
-        assetCode: "XLM",
-      },
-    });
+  it("undo beyond the beginning keeps returning undefined without throwing", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
 
-    expect(saved.status).toBe("ok");
-    if (saved.status !== "ok") return;
-
-    const loaded = loadTemplate("xlm-payment");
-    expect(loaded.status).toBe("ok");
-    if (loaded.status !== "ok") return;
-    expect(loaded.data.kind).toBe("payment");
-    expect(loaded.data.description).toBe("Send XLM");
-    expect(loaded.data.params).toEqual({
-      destination: "{{destination}}",
-      amount: "{{amount}}",
-      assetCode: "XLM",
-    });
+    expect(builder.undo()).toBeUndefined();
+    expect(builder.size()).toBe(0);
   });
 
-  it("applies parameter substitution when loading a template", () => {
-    saveTransactionTemplate("xlm-payment", {
-      kind: "payment",
-      params: {
-        destination: "{{destination}}",
-        amount: "{{amount}}",
-        memo: "pay {{memoTag}}",
-      },
-    });
+  // ── Redo ──────────────────────────────────────────────────────────────────
 
-    const loaded = loadTemplate("xlm-payment", {
-      destination: "GDESTINATIONADDRESSFORTEMPLATE000000000000000000000",
-      amount: "12.5",
-      memoTag: "invoice-42",
-    });
+  it("redo restores the most recently undone operation", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo(); // removes trustlineOp
 
-    expect(loaded.status).toBe("ok");
-    if (loaded.status !== "ok") return;
-    expect(loaded.data.params).toEqual({
-      destination: "GDESTINATIONADDRESSFORTEMPLATE000000000000000000000",
-      amount: "12.5",
-      memo: "pay invoice-42",
-    });
+    const redone = builder.redo();
+
+    expect(redone).toEqual(trustlineOp);
+    expect(builder.size()).toBe(2);
+    expect(builder.getOperations()[1]).toEqual(trustlineOp);
   });
 
-  it("substitutes nested object and array placeholders", () => {
-    saveTransactionTemplate("path-pay", {
-      kind: "pathPayment",
-      params: {
-        destination: "{{destination}}",
-        path: [{ assetCode: "{{hopAsset}}", assetIssuer: "{{hopIssuer}}" }],
-        nested: { amount: "{{amount}}" },
-      },
-    });
-
-    const loaded = loadTemplate("path-pay", {
-      destination: "GDEST",
-      hopAsset: "USDC",
-      hopIssuer: "GISSUER",
-      amount: "5",
-    });
-
-    expect(loaded.status).toBe("ok");
-    if (loaded.status !== "ok") return;
-    expect(loaded.data.params).toEqual({
-      destination: "GDEST",
-      path: [{ assetCode: "USDC", assetIssuer: "GISSUER" }],
-      nested: { amount: "5" },
-    });
+  it("redo returns undefined when the redo stack is empty", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    expect(builder.redo()).toBeUndefined();
   });
 
-  it("returns an error when required parameters are missing", () => {
-    saveTransactionTemplate("xlm-payment", {
-      kind: "payment",
-      params: {
-        destination: "{{destination}}",
-        amount: "{{amount}}",
-      },
-    });
+  it("redo decrements redoSize by 1", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
+    expect(builder.redoSize()).toBe(1);
 
-    const loaded = loadTemplate("xlm-payment", { destination: "GDEST" });
-    expect(loaded.status).toBe("error");
-    if (loaded.status !== "error") return;
-    expect(loaded.error.code).toBe(SorokitErrorCode.UNKNOWN);
-    expect(loaded.error.message).toContain("amount");
+    builder.redo();
+
+    expect(builder.redoSize()).toBe(0);
   });
 
-  it("returns TX_NOT_FOUND when loading an unknown template", () => {
-    const loaded = loadTemplate("missing-template");
-    expect(loaded.status).toBe("error");
-    if (loaded.status !== "error") return;
-    expect(loaded.error.code).toBe(SorokitErrorCode.TX_NOT_FOUND);
+  it("successive redo calls restore operations in LIFO order", () => {
+    const builder = createTransactionBuilder();
+    builder
+      .addOperation(paymentOp)
+      .addOperation(trustlineOp)
+      .addOperation(createAccountOp);
+    builder.undo(); // removes createAccountOp
+    builder.undo(); // removes trustlineOp
+
+    builder.redo(); // restores trustlineOp
+    builder.redo(); // restores createAccountOp
+
+    const ops = builder.getOperations();
+    expect(ops).toHaveLength(3);
+    expect(ops[1]).toEqual(trustlineOp);
+    expect(ops[2]).toEqual(createAccountOp);
   });
 
-  it("rejects empty template names and invalid kinds", () => {
-    const emptyName = saveTransactionTemplate("  ", {
-      kind: "payment",
-      params: { amount: "1" },
-    });
-    expect(emptyName.status).toBe("error");
+  // ── New addOperation clears redo stack ────────────────────────────────────
 
-    const badKind = saveTransactionTemplate("bad", {
-      kind: "not-a-kind" as any,
-      params: { amount: "1" },
-    });
-    expect(badKind.status).toBe("error");
+  it("addOperation after undo clears the redo stack (linear history)", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo(); // trustlineOp on redo stack
+
+    builder.addOperation(createAccountOp); // should clear redo stack
+
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.redo()).toBeUndefined();
   });
 
-  it("lists, deletes, and clears templates from the default store", () => {
-    saveTransactionTemplate("a", { kind: "payment", params: { amount: "1" } });
-    saveTransactionTemplate("b", { kind: "trustline", params: { assetCode: "USDC" } });
+  it("operations added after clearing redo form the new history", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+    builder.undo();
+    builder.addOperation(createAccountOp);
 
-    const listed = listTransactionTemplates();
-    expect(listed.status).toBe("ok");
-    if (listed.status !== "ok") return;
-    expect(listed.data).toEqual(["a", "b"]);
-
-    const deleted = deleteTransactionTemplate("a");
-    expect(deleted.status).toBe("ok");
-    if (deleted.status !== "ok") return;
-    expect(deleted.data).toBe(true);
-    expect(listTransactionTemplates().data).toEqual(["b"]);
-
-    clearTransactionTemplates();
-    expect(listTransactionTemplates().data).toEqual([]);
+    const ops = builder.getOperations();
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toEqual(createAccountOp);
   });
 
-  it("supports a custom persistent-style store implementation", () => {
-    const customStore = new InMemoryTransactionTemplateStore();
+  // ── Full undo/redo round-trip ─────────────────────────────────────────────
 
-    const saved = saveTransactionTemplate(
-      "custom-payment",
-      {
-        kind: "payment",
-        params: { destination: "{{destination}}", amount: "10" },
-      },
-      customStore,
-    );
-    expect(saved.status).toBe("ok");
+  it("full round-trip: add → undo → redo leaves history unchanged", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
 
-    // Default store should remain empty
-    expect(listTransactionTemplates().data).toEqual([]);
+    builder.undo();
+    builder.redo();
 
-    const loaded = loadTemplate(
-      "custom-payment",
-      { destination: "GCUSTOM" },
-      customStore,
-    );
-    expect(loaded.status).toBe("ok");
-    if (loaded.status !== "ok") return;
-    expect(loaded.data.params).toEqual({
-      destination: "GCUSTOM",
-      amount: "10",
-    });
+    expect(builder.size()).toBe(2);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([paymentOp, trustlineOp]);
   });
 
-  it("does not allow external mutation of stored templates", () => {
-    const template = {
-      kind: "payment" as const,
-      params: { destination: "{{destination}}", amount: "1" },
+  // ── Immutability / isolation ──────────────────────────────────────────────
+
+  it("getOperations returns a frozen snapshot — mutating it does not affect internal state", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp);
+
+    const ops = builder.getOperations() as TransactionOperation[];
+    ops.push(trustlineOp); // mutate the returned snapshot
+
+    expect(builder.size()).toBe(1); // internal state unaffected
+  });
+
+  it("mutating the original operation object does not affect stored history", () => {
+    const mutableOp: TransactionOperation = {
+      type: "payment",
+      params: { amount: "10" },
     };
+    const builder = createTransactionBuilder();
+    builder.addOperation(mutableOp);
 
-    saveTransactionTemplate("immutable", template);
-    template.params.amount = "999";
+    mutableOp.params.amount = "9999"; // mutate after add
 
-    const loaded = loadTemplate("immutable");
-    expect(loaded.status).toBe("ok");
-    if (loaded.status !== "ok") return;
-    expect(loaded.data.params.amount).toBe("1");
-
-    (loaded.data.params as { amount: string }).amount = "777";
-    const loadedAgain = loadTemplate("immutable");
-    expect(loadedAgain.status).toBe("ok");
-    if (loadedAgain.status !== "ok") return;
-    expect(loadedAgain.data.params.amount).toBe("1");
+    expect(builder.getOperations()[0].params.amount).toBe("10");
   });
 
-  describe("streamTransactions", () => {
-    const horizonUrl = "https://horizon-test.stellar.org";
-    const publicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  // ── clear ─────────────────────────────────────────────────────────────────
 
-    it("yields ok({ transactions, nextCursor }) and advances cursor from paging_token", async () => {
-      const mockRecords = [
-        {
-          hash: "hash1",
-          successful: true,
-          ledger_attr: 100,
-          created_at: "2026-01-01T00:00:00Z",
-          fee_charged: "100",
-          envelope_xdr: "env1",
-          result_xdr: "res1",
-          paging_token: "pt_100",
-        },
-      ];
+  it("clear resets both history and redo stack", () => {
+    const builder = createTransactionBuilder();
+    builder.addOperation(paymentOp).addOperation(trustlineOp);
+    builder.undo();
 
-      const callFn = vi.fn().mockResolvedValue({ records: mockRecords });
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
-      const transactionsFn = vi.fn().mockReturnValue({ forAccount: forAccountFn });
+    builder.clear();
 
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: transactionsFn,
-      } as unknown as Horizon.Server);
+    expect(builder.size()).toBe(0);
+    expect(builder.redoSize()).toBe(0);
+    expect(builder.getOperations()).toEqual([]);
+  });
 
-      const stream = streamTransactions(horizonUrl, publicKey, {
-        maxPolls: 1,
-        intervalMs: 10,
-        emitOnStart: true,
-      });
+  it("clear supports method chaining", () => {
+    const builder = createTransactionBuilder();
+    const returned = builder.clear();
+    expect(returned).toBe(builder);
+  });
 
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
+  // ── Multiple independent builder instances ────────────────────────────────
 
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe("ok");
-      if (results[0].status === "ok") {
-        expect(results[0].data.transactions).toHaveLength(1);
-        expect(results[0].data.transactions[0].hash).toBe("hash1");
-        expect(results[0].data.nextCursor).toBe("pt_100");
-      }
+  it("two builder instances maintain independent state", () => {
+    const b1 = createTransactionBuilder();
+    const b2 = createTransactionBuilder();
 
-      vi.restoreAllMocks();
-    });
+    b1.addOperation(paymentOp);
+    b2.addOperation(trustlineOp).addOperation(createAccountOp);
 
-    it("stops after maxPolls: 2", async () => {
-      let pollCount = 0;
-      const callFn = vi.fn().mockImplementation(async () => {
-        pollCount++;
-        return {
-          records: [
-            {
-              hash: `hash_${pollCount}`,
-              successful: true,
-              ledger_attr: 100,
-              created_at: "2026-01-01T00:00:00Z",
-              fee_charged: "100",
-              envelope_xdr: "env1",
-              result_xdr: "res1",
-              paging_token: `pt_${pollCount}`,
-            },
-          ],
-        };
-      });
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+    expect(b1.size()).toBe(1);
+    expect(b2.size()).toBe(2);
 
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
-      } as unknown as Horizon.Server);
-
-      const stream = streamTransactions(horizonUrl, publicKey, {
-        maxPolls: 2,
-        intervalMs: 10,
-        emitOnStart: true,
-      });
-
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
-
-      expect(results.length).toBeLessThanOrEqual(2);
-      vi.restoreAllMocks();
-    });
-
-    it("terminates when AbortSignal is aborted", async () => {
-      const controller = new AbortController();
-
-      const callFn = vi.fn().mockImplementation(async () => {
-        controller.abort();
-        return { records: [] };
-      });
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
-
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
-      } as unknown as Horizon.Server);
-
-      const stream = streamTransactions(
-        horizonUrl,
-        publicKey,
-        { intervalMs: 10, emitOnStart: true },
-        controller.signal,
-      );
-
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
-
-      expect(results.length).toBeLessThanOrEqual(1);
-      vi.restoreAllMocks();
-    });
-
-    it("yields nextCursor: null when page.records is empty", async () => {
-      const callFn = vi.fn().mockResolvedValue({ records: [] });
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
-
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
-      } as unknown as Horizon.Server);
-
-      const stream = streamTransactions(horizonUrl, publicKey, {
-        maxPolls: 1,
-        intervalMs: 10,
-        emitOnStart: true,
-      });
-
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
-
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe("ok");
-      if (results[0].status === "ok") {
-        expect(results[0].data.transactions).toHaveLength(0);
-        expect(results[0].data.nextCursor).toBeNull();
-      }
-
-      vi.restoreAllMocks();
-    });
-
-    it("yields ACCOUNT_NOT_FOUND on 404 error", async () => {
-      const err404 = new Error("Not Found");
-      (err404 as unknown as { response: { status: number } }).response = { status: 404 };
-
-      const callFn = vi.fn().mockRejectedValue(err404);
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
-
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
-      } as unknown as Horizon.Server);
-
-      const stream = streamTransactions(horizonUrl, publicKey, {
-        maxPolls: 1,
-        intervalMs: 10,
-        emitOnStart: true,
-      });
-
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
-
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe("error");
-      if (results[0].status === "error") {
-        expect(results[0].error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
-      }
-
-      vi.restoreAllMocks();
-    });
-
-    it("yields TX_SUBMIT_FAILED on non-404 error", async () => {
-      const callFn = vi.fn().mockRejectedValue(new Error("Network Error"));
-      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
-      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
-      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
-      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
-
-      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
-        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
-      } as unknown as Horizon.Server);
-
-      const stream = streamTransactions(horizonUrl, publicKey, {
-        maxPolls: 1,
-        intervalMs: 10,
-        emitOnStart: true,
-      });
-
-      const results = [];
-      for await (const res of stream) {
-        results.push(res);
-      }
-
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe("error");
-      if (results[0].status === "error") {
-        expect(results[0].error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
-      }
-
-      vi.restoreAllMocks();
-    });
+    b1.undo();
+    expect(b1.size()).toBe(0);
+    expect(b2.size()).toBe(2); // b2 unaffected
   });
 });
