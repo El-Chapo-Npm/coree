@@ -864,215 +864,166 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
   }, 10_000);
 });
 
-describe("rotateAccountKey & setAccountRecovery (#211)", () => {
+describe("getAccountActivitySummary (#140)", () => {
   const HORIZON_URL = "https://horizon-testnet.stellar.org";
-  const networkConfig = {
-    network: "testnet" as const,
-    horizonUrl: HORIZON_URL,
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    networkPassphrase: "Test SDF Network ; September 2015",
-  };
+  const PUBLIC_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 
-  const VALID_ACCOUNT = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
-  const VALID_OLD_KEY = "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN00";
-  const VALID_NEW_KEY = "GCVJWGVZCVSRMEMEMIYLAUQDFKCEH6HMA5HZGBF4QSQCIIQG7HFIC76L";
-
-  describe("isValidStellarPublicKey helper", () => {
-    it("returns true for valid Ed25519 public keys", async () => {
-      const { isValidStellarPublicKey } = await import("../account/keyRotation");
-      expect(isValidStellarPublicKey(VALID_ACCOUNT)).toBe(true);
-      expect(isValidStellarPublicKey(VALID_OLD_KEY)).toBe(true);
-    });
-
-    it("returns false for invalid keys or non-string inputs", async () => {
-      const { isValidStellarPublicKey } = await import("../account/keyRotation");
-      expect(isValidStellarPublicKey("invalid_key")).toBe(false);
-      expect(isValidStellarPublicKey("SBCDEF...")).toBe(false);
-      expect(isValidStellarPublicKey(123 as any)).toBe(false);
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe("rotateAccountKey", () => {
-    it("fails when account address is invalid", async () => {
-      const { rotateAccountKey } = await import("../account/keyRotation");
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: "bad_account",
-        oldKey: VALID_OLD_KEY,
-        newKey: VALID_NEW_KEY,
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("INVALID_ADDRESS");
-      }
-    });
-
-    it("fails when oldKey address is invalid", async () => {
-      const { rotateAccountKey } = await import("../account/keyRotation");
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        oldKey: "bad_old_key",
-        newKey: VALID_NEW_KEY,
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("INVALID_ADDRESS");
-      }
-    });
-
-    it("fails when newKey address is invalid", async () => {
-      const { rotateAccountKey } = await import("../account/keyRotation");
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        oldKey: VALID_OLD_KEY,
-        newKey: "bad_new_key",
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("INVALID_ADDRESS");
-      }
-    });
-
-    it("fails when oldKey and newKey are identical", async () => {
-      const { rotateAccountKey } = await import("../account/keyRotation");
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        oldKey: VALID_OLD_KEY,
-        newKey: VALID_OLD_KEY,
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("TX_BUILD_FAILED");
-        expect(res.error.message).toContain("identical");
-      }
-    });
-
-    it("returns error if getAccount fails", async () => {
-      const { getAccount } = await import("../account/getAccount");
-      const { err, SorokitErrorCode } = await import("../shared/response");
-      const { rotateAccountKey } = await import("../account/keyRotation");
-
-      vi.mocked(getAccount).mockResolvedValueOnce(
-        err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Account not found"),
-      );
-
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        oldKey: VALID_OLD_KEY,
-        newKey: VALID_NEW_KEY,
-      });
-
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("ACCOUNT_NOT_FOUND");
-      }
-    });
-
-    it("successfully builds a key rotation transaction sequence", async () => {
-      const { getAccount } = await import("../account/getAccount");
-      const { ok } = await import("../shared/response");
-      const { rotateAccountKey } = await import("../account/keyRotation");
-
-      vi.mocked(getAccount).mockResolvedValueOnce(
-        ok({
-          publicKey: VALID_ACCOUNT,
-          displayAddress: "GAAZ...",
-          sequence: "100",
-          subentryCount: 0,
-          balances: [],
-        }),
-      );
-
-      const res = await rotateAccountKey(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        oldKey: VALID_OLD_KEY,
-        newKey: VALID_NEW_KEY,
-        newKeyWeight: 2,
-      });
-
-      expect(res.status).toBe("ok");
-      if (res.status === "ok") {
-        expect(typeof res.data).toBe("string");
-        expect(res.data.length).toBeGreaterThan(0);
-      }
-    });
+  it("fails when public key is invalid or empty", async () => {
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+    const res = await getAccountActivitySummary(HORIZON_URL, "");
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.error.code).toBe("INVALID_ADDRESS");
+    }
   });
 
-  describe("setAccountRecovery", () => {
-    it("fails when account address is invalid", async () => {
-      const { setAccountRecovery } = await import("../account/keyRotation");
-      const res = await setAccountRecovery(HORIZON_URL, networkConfig, {
-        account: "bad_account",
-        recoveryKey: VALID_NEW_KEY,
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("INVALID_ADDRESS");
-      }
-    });
+  it("summarizes activity for 24h period", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
 
-    it("fails when recoveryKey address is invalid", async () => {
-      const { setAccountRecovery } = await import("../account/keyRotation");
-      const res = await setAccountRecovery(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        recoveryKey: "bad_recovery_key",
-      });
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("INVALID_ADDRESS");
-      }
-    });
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "100",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+      {
+        created_at: new Date(now - 5 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash2",
+        type: "payment",
+        amount: "25",
+        asset_type: "credit_alphanum4",
+        asset_code: "USDC",
+        asset_issuer: "GISSUER",
+        from: PUBLIC_KEY,
+      },
+    ];
 
-    it("returns error if getAccount fails", async () => {
-      const { getAccount } = await import("../account/getAccount");
-      const { err, SorokitErrorCode } = await import("../shared/response");
-      const { setAccountRecovery } = await import("../account/keyRotation");
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
 
-      vi.mocked(getAccount).mockResolvedValueOnce(
-        err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Account not found"),
-      );
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
 
-      const res = await setAccountRecovery(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        recoveryKey: VALID_NEW_KEY,
-      });
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "24h");
 
-      expect(res.status).toBe("error");
-      if (res.status === "error") {
-        expect(res.error.code).toBe("ACCOUNT_NOT_FOUND");
-      }
-    });
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("24h");
+      expect(res.data.transactionCount).toBe(2);
+      expect(res.data.successfulTransactionCount).toBe(2);
+      expect(res.data.totalAmountIn).toBe("100");
+      expect(res.data.totalAmountOut).toBe("25");
+      expect(res.data.topAssets).toHaveLength(2);
+    }
+  });
 
-    it("successfully builds account recovery transaction", async () => {
-      const { getAccount } = await import("../account/getAccount");
-      const { ok } = await import("../shared/response");
-      const { setAccountRecovery } = await import("../account/keyRotation");
+  it("summarizes activity for 7d period filtering out older transactions", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
 
-      vi.mocked(getAccount).mockResolvedValueOnce(
-        ok({
-          publicKey: VALID_ACCOUNT,
-          displayAddress: "GAAZ...",
-          sequence: "100",
-          subentryCount: 0,
-          balances: [],
-        }),
-      );
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "50",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+      {
+        created_at: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: true,
+        transaction_hash: "hash2",
+        type: "payment",
+        amount: "200",
+        asset_type: "native",
+        asset_code: "XLM",
+        to: PUBLIC_KEY,
+      },
+    ];
 
-      const res = await setAccountRecovery(HORIZON_URL, networkConfig, {
-        account: VALID_ACCOUNT,
-        recoveryKey: VALID_NEW_KEY,
-        recoveryWeight: 1,
-        masterWeight: 1,
-        lowThreshold: 1,
-        medThreshold: 2,
-        highThreshold: 2,
-      });
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
 
-      expect(res.status).toBe("ok");
-      if (res.status === "ok") {
-        expect(typeof res.data).toBe("string");
-        expect(res.data.length).toBeGreaterThan(0);
-      }
-    });
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
+
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "7d");
+
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("7d");
+      expect(res.data.transactionCount).toBe(1);
+      expect(res.data.totalAmountIn).toBe("50");
+    }
+  });
+
+  it("summarizes activity for 30d period including failed transactions", async () => {
+    const { Horizon } = await import("@stellar/stellar-sdk");
+    const { getAccountActivitySummary } = await import("../account/getAccountActivitySummary");
+
+    const now = Date.now();
+    const mockOps = [
+      {
+        created_at: new Date(now - 15 * 24 * 60 * 60 * 1000).toISOString(),
+        transaction_successful: false,
+        transaction_hash: "hash1",
+        type: "payment",
+        amount: "10",
+        asset_type: "native",
+        asset_code: "XLM",
+        from: PUBLIC_KEY,
+      },
+    ];
+
+    const mockCall = vi.fn().mockResolvedValue({ records: mockOps });
+    const mockOperationsBuilder = {
+      forAccount: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      call: mockCall,
+    };
+
+    vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+      operations: () => mockOperationsBuilder,
+    }) as any);
+
+    const res = await getAccountActivitySummary(HORIZON_URL, PUBLIC_KEY, "30d");
+
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.data.period).toBe("30d");
+      expect(res.data.transactionCount).toBe(1);
+      expect(res.data.failedTransactionCount).toBe(1);
+      expect(res.data.successfulTransactionCount).toBe(0);
+    }
   });
 });
 

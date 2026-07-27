@@ -10,6 +10,12 @@ export {
   setAccountRecovery,
   isValidStellarPublicKey,
 } from "./keyRotation";
+export { getAccountActivitySummary } from "./getAccountActivitySummary";
+export type {
+  ActivityPeriod,
+  AssetActivity,
+  AccountActivitySummary,
+} from "./getAccountActivitySummary";
 export type {
   RotateAccountKeyParams,
   SetAccountRecoveryParams,
