@@ -257,6 +257,7 @@ export type {
 } from "./soroban/types";
 
 // ─── Response system ──────────────────────────────────────────────────────────
+export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
