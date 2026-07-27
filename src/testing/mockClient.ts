@@ -84,8 +84,16 @@ export const MOCK_TX_RESULT: TransactionResult = {
 
 export const MOCK_PREPARED_CALL: PreparedContractCall = {
   transactionXdr: "AAAAAQAAAA==",
-  fee: "100",
+  fee: "1000000",
 };
+
+export const MOCK_FEE_ESTIMATE = {
+  fee: "1000000",
+  feeFloat: 1000000,
+  feeXlm: "0.1000000",
+  baseFee: "100",
+  simulated: true,
+} as const;
 
 export const MOCK_SIMULATE_RESULT: SimulateTransactionResult = {
   fee: "100",
@@ -164,15 +172,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       buildTrustline: vi.fn().mockResolvedValue(ok("UNSIGNED_XDR_MOCK==")),
       submit: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
       getStatus: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
-      estimateFee: vi.fn().mockResolvedValue(
-        ok({
-          fee: "100",
-          feeFloat: 100,
-          feeXlm: "0.0000100",
-          baseFee: "100",
-          simulated: true,
-        }),
-      ),
+      estimateFee: vi.fn().mockResolvedValue(ok(MOCK_FEE_ESTIMATE)),
     },
 
     soroban: {
