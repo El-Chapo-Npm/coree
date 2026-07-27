@@ -103,9 +103,12 @@ describe("wallet adapters", () => {
       }
     });
 
-    it("disconnect() always returns status ok", async () => {
+    it("disconnect() always returns status ok with undefined data (#291)", async () => {
       const result = await new FreighterAdapter(mockKit()).disconnect();
       expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
     });
 
     it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
@@ -174,7 +177,46 @@ describe("wallet module functions", () => {
     if (result.status === "ok") {
       expect(result.data.connected).toBe(false);
       expect(result.data.publicKey).toBeNull();
+      expect(result.data.walletType).toBeNull();
     }
+  });
+
+  describe("browser environment success paths (#296)", () => {
+    // FreighterAdapter.isAvailable() delegates to isBrowser(). Spying on the
+    // method is equivalent to mocking isBrowser for the scope of these tests
+    // without perturbing the global module state for other tests.
+
+    it("connectWallet() returns ok WalletState with full shape when adapter is available", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+      const result = await connectWallet(adapter);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual({
+          connected: true,
+          publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+          walletType: WalletType.FREIGHTER,
+        });
+      }
+    });
+
+    it("disconnectWallet() returns ok({ connected: false, publicKey: null, walletType: null }) in browser env", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+      const result = await disconnectWallet(adapter);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual({
+          connected: false,
+          publicKey: null,
+          walletType: null,
+        });
+      }
+    });
   });
 
   it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {

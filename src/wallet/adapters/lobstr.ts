@@ -59,7 +59,7 @@ export class LobstrAdapter implements WalletAdapter {
     }
   }
 
-  async disconnect(): Promise<SorokitResult<void>> {
+  async disconnect(): Promise<SorokitResult<undefined>> {
     return ok(undefined);
   }
 
