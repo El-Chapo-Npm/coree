@@ -24,6 +24,7 @@ import {
   err,
   ok,
   SorokitErrorCode,
+  buildError,
 } from "../shared";
 
 describe("shared/utils", () => {
@@ -107,6 +108,31 @@ describe("shared/errors", () => {
 
     it("stringifies objects", () => {
       expect(toMessage({ code: 42 })).toBe('{"code":42}');
+    });
+  });
+
+  describe("buildError", () => {
+    it("constructs a SorokitError without cause", () => {
+      const error = buildError(SorokitErrorCode.UNKNOWN, "msg");
+      expect(error).toEqual({
+        code: "UNKNOWN",
+        message: "msg",
+        cause: undefined,
+      });
+      expect(error).not.toHaveProperty("status");
+    });
+
+    it("constructs a SorokitError with a cause", () => {
+      const rootError = new Error("root cause");
+      const error = buildError(
+        SorokitErrorCode.NETWORK_ERROR,
+        "msg",
+        rootError,
+      );
+      expect(error.code).toBe("NETWORK_ERROR");
+      expect(error.message).toBe("msg");
+      expect(error.cause).toBe(rootError);
+      expect(error).not.toHaveProperty("status");
     });
   });
 
@@ -606,6 +632,51 @@ describe("TokenBucketRateLimiter", () => {
     // next should queue and resolve
     await limiter2.acquire();
     expect(Date.now() - start).toBeGreaterThanOrEqual(0);
+  });
+
+  describe("Per-Endpoint Rate Limiting & Headers (#214)", () => {
+    it("configures default limits per endpoint category", () => {
+      const limiter = new TokenBucketRateLimiter({
+        defaultLimit: 10,
+        endpoints: {
+          "contract.simulate": 2,
+          "account.get": 50,
+        },
+      });
+
+      expect(limiter.getEndpointLimit("contract.simulate")).toBe(2);
+      expect(limiter.getEndpointLimit("account.get")).toBe(50);
+      expect(limiter.getEndpointLimit("unspecified")).toBe(10);
+    });
+
+    it("allows runtime rate limit overrides via setEndpointLimit", () => {
+      const limiter = new TokenBucketRateLimiter(10);
+      expect(limiter.getEndpointLimit("contract.simulate")).toBe(5); // standard default
+
+      limiter.setEndpointLimit("contract.simulate", 1);
+      expect(limiter.getEndpointLimit("contract.simulate")).toBe(1);
+    });
+
+    it("parses X-Rate-Limit-Limit headers and updates endpoint limits dynamically", () => {
+      const limiter = new TokenBucketRateLimiter(10);
+      limiter.handleResponseHeaders("account.get", {
+        "x-rate-limit-limit": "100",
+        "x-rate-limit-remaining": "50",
+      });
+
+      expect(limiter.getEndpointLimit("account.get")).toBe(100);
+    });
+
+    it("handles Headers object for X-Rate-Limit headers", () => {
+      const limiter = new TokenBucketRateLimiter(10);
+      const headers = new Headers();
+      headers.set("X-Rate-Limit-Limit", "25");
+      headers.set("X-Rate-Limit-Remaining", "0");
+      headers.set("X-Rate-Limit-Reset", "1");
+
+      limiter.handleResponseHeaders("contract.simulate", headers);
+      expect(limiter.getEndpointLimit("contract.simulate")).toBe(25);
+    });
   });
 });
 

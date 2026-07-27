@@ -3,6 +3,7 @@ import type { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 export type ExportFormat = "csv" | "json" | "CSV" | "JSON";
 
@@ -303,7 +304,7 @@ export async function exportTransactionHistory(
   const exportedTransactions: ExportedTransaction[] = [];
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     let cursor: string | undefined;
     let keepFetching = true;
 

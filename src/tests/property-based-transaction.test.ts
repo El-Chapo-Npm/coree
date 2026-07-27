@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { Keypair, TransactionBuilder, Networks, Asset, Memo, Account, Operation } from "@stellar/stellar-sdk";
+import { Keypair, Account, TransactionBuilder, Operation, Networks, Asset, Memo } from "@stellar/stellar-sdk";
 import type { Transaction } from "@stellar/stellar-sdk";
 import {
   createTextMemo,

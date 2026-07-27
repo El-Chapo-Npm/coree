@@ -375,6 +375,82 @@ describe("soroban contract metadata", () => {
     expect(mockGetLedgerEntries).toHaveBeenCalledTimes(4);
   });
 
+  it("allows manual invalidation of cached metadata", async () => {
+    const cache = new MemoryCache();
+    const id = contractId();
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const first = await getContractMethods(
+      "https://rpc-invalidate.example.com",
+      id,
+      {
+        cache,
+        now: () => 1_000,
+      },
+    );
+
+    const second = await getContractMethods(
+      "https://rpc-invalidate.example.com",
+      id,
+      {
+        cache,
+        now: () => 2_000,
+      },
+    );
+
+    expect(first.status).toBe("ok");
+    expect(second.status).toBe("ok");
+    expect(mockGetLedgerEntries).toHaveBeenCalledTimes(2);
+
+    // Invalidate and force a refetch
+    const { invalidateContractCache } = await import(
+      "../soroban/contractMetadata",
+    );
+
+    invalidateContractCache(id, cache);
+
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const third = await getContractMethods(
+      "https://rpc-invalidate.example.com",
+      id,
+      {
+        cache,
+        now: () => 3_000,
+      },
+    );
+
+    expect(third.status).toBe("ok");
+    expect(mockGetLedgerEntries).toHaveBeenCalledTimes(4);
+  });
+
+  it("evicts oldest entries when memory cache exceeds its max size", async () => {
+    // Fill memory cache with > MAX_MEMORY_CACHE_ENTRIES entries
+    const ids: string[] = Array.from({ length: 101 }).map(() => contractId());
+
+    for (const id of ids) {
+      mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+      const res = await getContractMethods("https://rpc-evict.example.com", id, {
+        now: () => 1_000,
+      });
+      expect(res.status).toBe("ok");
+    }
+
+    // Re-fetch the first id; if it was evicted, this will cause RPC calls again
+    const before = mockGetLedgerEntries.mock.calls.length;
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const refetch = await getContractMethods(
+      "https://rpc-evict.example.com",
+      ids[0],
+      { now: () => 2_000 },
+    );
+
+    expect(refetch.status).toBe("ok");
+    // Expect at least two more rpc calls (instance + code) if eviction occurred
+    expect(mockGetLedgerEntries.mock.calls.length).toBeGreaterThanOrEqual(before + 2);
+  });
+
   it("returns a typed error when the contract is not Wasm-backed", async () => {
     mockStellarAssetContractEntry();
 

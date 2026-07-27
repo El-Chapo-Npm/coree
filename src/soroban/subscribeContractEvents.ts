@@ -166,7 +166,8 @@ export async function queryContractEvents(
   const requestFetch = options?.fetch ?? globalThis.fetch;
 
   try {
-    const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/events`);
+    const horizonUrl = options?.horizonUrl ?? "https://horizon-testnet.stellar.org";
+    const endpoint = new URL(`${horizonUrl.replace(/\/$/, "")}/events`);
     endpoint.searchParams.set("contractId", contractId);
     endpoint.searchParams.set("order", "desc");
 

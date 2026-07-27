@@ -79,8 +79,8 @@ export {
   buildPathPayment,
   buildAtomicSwap,
   buildAccountMerge,
-  buildBulkTrustlines,
   checkTrustlines,
+  buildBulkTrustlines,
   clearSequenceCache,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
@@ -149,6 +149,20 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+export {
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
+} from "./templates";
+export type {
+  TransactionTemplate,
+  TransactionTemplateKind,
+  TransactionTemplateStore,
+  TemplateParamValue,
+} from "./templates";
 // ─── Asset constants and factories ───────────────────────────────────────────
 export const USDC_MAINNET_ISSUER =
   "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";

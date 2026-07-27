@@ -21,6 +21,7 @@ export {
   prioritizeWallet,
   recommendWallets,
   removeSignatureFromEnvelope,
+  signTransactionOffline,
 } from "./wallet";
 export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
@@ -49,15 +50,23 @@ export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth } from "./network";
+export { checkNetworkHealth, NetworkSwitcher } from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
   NetworkHealthReport,
   NetworkHealthStatus,
+  CustomNetwork,
+  NetworkOption,
+  NetworkInfo,
+  NetworkStatus,
+  NetworkSwitchListener,
+  NetworkStatusListener,
+  NetworkSwitchUnsubscribe,
+  NetworkSwitcherConfig,
 } from "./network";
 
-// ─── Account types ────────────────────────────────────────────────────────────
+// ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { getAccountsBatch } from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
@@ -65,12 +74,14 @@ export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { setSponsor, removeSponsor } from "./account/sponsorship";
 export type {
   AccountInfo,
   AssetBalance,
   BalanceAlert,
   BalanceAlertCondition,
   BalanceAlertRule,
+  SponsorshipResult,
 } from "./account/types";
 
 // ─── Transaction validation ───────────────────────────────────────────────────
@@ -158,6 +169,25 @@ export type {
   CustomValidationRule,
   ParsedOperation,
 } from "./transaction/validateTransaction";
+export {
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
+} from "./transaction";
+export type {
+  TransactionTemplate,
+  TransactionTemplateKind,
+  TransactionTemplateStore,
+  TemplateParamValue,
+} from "./transaction";
+
+// ─── Soroban simulator (#210) ──────────────────────────────────────────────────
+export { SorobanSimulator } from "./soroban/simulator";
+export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./soroban/simulator";
+export { setSorobanSimulator } from "./shared/serverFactory";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
@@ -213,6 +243,16 @@ export {
 } from "./shared/response";
 export type { SorokitError, SorokitResult } from "./shared/response";
 export { generateTraceId } from "./shared/utils";
+
+// ─── Distributed tracing (#212) ────────────────────────────────────────────
+export {
+  getTraceContext,
+  createTraceContext,
+  createTracedFetch,
+  createAutoTracedFetch,
+  setTraceContext,
+} from "./shared/tracing";
+export type { TraceContext, TraceContextOptions } from "./shared/tracing";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 export {
