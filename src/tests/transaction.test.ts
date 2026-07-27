@@ -80,6 +80,7 @@ const {
   mockIsSimulationSuccess: vi.fn(),
   mockSubmitTransaction: vi.fn(),
   mockTransactionCall: vi.fn(),
+  mockCursorCall: vi.fn(),
 }));
 
 const {
@@ -166,7 +167,10 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
             forAccount: vi.fn(() => builder),
             limit: vi.fn(() => builder),
             order: vi.fn(() => builder),
-            cursor: vi.fn(() => builder),
+            cursor: vi.fn((c: string) => {
+              mockCursorCall(c);
+              return builder;
+            }),
             call: mockTransactionsCall,
             transaction: vi.fn().mockReturnValue({
               call: mockTransactionCall,
@@ -573,6 +577,41 @@ describe("transaction streaming filters", () => {
       expect(transactionHashes(value.data.transactions)).toEqual(["tx_4"]);
       expect(value.data.nextCursor).toBe("cursor_4");
     }
+  });
+
+  it("updates cursor on subsequent poll when config.cursor is provided with maxPolls: 2", async () => {
+    mockCursorCall.mockClear();
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: [
+          makeHorizonRecord(TRANSACTION_FIXTURES[0]!, "cursor_page_1"),
+        ],
+      })
+      .mockResolvedValueOnce({
+        records: [
+          makeHorizonRecord(TRANSACTION_FIXTURES[1]!, "cursor_page_2"),
+        ],
+      });
+
+    const stream = streamTransactions(
+      networkConfig.horizonUrl,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        cursor: "initial_cursor",
+        maxPolls: 2,
+        intervalMs: 10,
+      },
+    );
+
+    const pages = [];
+    for await (const page of stream) {
+      pages.push(page);
+    }
+
+    expect(pages).toHaveLength(2);
+    expect(mockCursorCall).toHaveBeenCalledTimes(2);
+    expect(mockCursorCall).toHaveBeenNthCalledWith(1, "initial_cursor");
+    expect(mockCursorCall).toHaveBeenNthCalledWith(2, "cursor_page_1");
   });
 });
 
