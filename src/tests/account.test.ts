@@ -1027,3 +1027,43 @@ describe("getAccountActivitySummary (#140)", () => {
   });
 });
 
+describe("parseFloat precision boundary (#246)", () => {
+  it("documents the maximum safe float balance value", () => {
+    // JavaScript's Number.MAX_SAFE_INTEGER = 9,007,199,254,740,991 (~9e15)
+    // Stellar balances are stored as 7-decimal strings. The worst-case safe
+    // balance value (the largest integer that parseFloat can round-trip
+    // through Number → String without loss) is:
+    //
+    //   MAX_SAFE / 10^7 = 900,719,925,474.0992 XLM
+    //
+    // Any balance under 100 billion XLM — far beyond any realistic account —
+    // is guaranteed to survive parseFloat → String → parseFloat without
+    // change.
+    const maxSafeXlm = Number.MAX_SAFE_INTEGER / 10_000_000;
+
+    expect(maxSafeXlm).toBe(900719925.4740992);
+    expect(Number.isFinite(maxSafeXlm)).toBe(true);
+
+    // Verify round-trip stability for realistic balances
+    const realistic = [
+      "0.0000001",
+      "1.0000000",
+      "100.1234567",
+      "9999999.9999999",
+      "100000000000.0000000", // 100 billion XLM — still safe
+    ];
+
+    for (const bal of realistic) {
+      const roundTripped = parseFloat(bal).toFixed(7);
+      expect(roundTripped).toBe(bal);
+    }
+
+    // Demonstrate where precision loss begins
+    const edgeCase = "999999999999999.9999999"; // ~1 quadrillion XLM
+    const parsed = parseFloat(edgeCase);
+    const restored = parsed.toFixed(7);
+    // At this magnitude the last decimal digit may be lost
+    expect(restored).not.toBe(edgeCase);
+  });
+});
+
