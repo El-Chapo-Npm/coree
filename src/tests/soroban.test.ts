@@ -635,6 +635,125 @@ describe("soroban contract event subscriptions", () => {
   });
 });
 
+import { streamContractEvents } from "../soroban/subscribeContractEvents";
+
+describe("streamContractEvents (#188)", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("yields new events as an async generator", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const ac = new AbortController();
+    const gen = streamContractEvents(
+      "C123",
+      undefined,
+      { horizonUrl: "https://horizon.test", intervalMs: 10, fetch: fetchMock },
+      ac.signal,
+    );
+
+    const nextPromise = gen.next();
+    await vi.advanceTimersByTimeAsync(15);
+    ac.abort();
+
+    const result = await nextPromise;
+    expect(result.done).toBe(false);
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0].id).toBe("evt-1");
+  });
+
+  it("deduplicates events — same event is not yielded twice", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-dup",
+              contractId: "C123",
+              name: "mint",
+              topics: [],
+              value: {},
+            },
+          ],
+        },
+      }),
+    });
+
+    const ac = new AbortController();
+    const received: string[] = [];
+
+    const consume = async () => {
+      for await (const events of streamContractEvents(
+        "C123",
+        undefined,
+        { horizonUrl: "https://horizon.test", intervalMs: 10, fetch: fetchMock },
+        ac.signal,
+      )) {
+        for (const e of events) received.push(String(e.id));
+      }
+    };
+
+    const p = consume();
+    await vi.advanceTimersByTimeAsync(40);
+    ac.abort();
+    await p;
+
+    // Even though fetch returned the same event multiple times, it should only appear once
+    expect(received.filter((id) => id === "evt-dup")).toHaveLength(1);
+  });
+
+  it("stops when the AbortSignal is aborted", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [] } }),
+    });
+
+    const ac = new AbortController();
+    const results: unknown[] = [];
+
+    const consume = async () => {
+      for await (const events of streamContractEvents(
+        "C123",
+        undefined,
+        { horizonUrl: "https://horizon.test", intervalMs: 100, fetch: fetchMock },
+        ac.signal,
+      )) {
+        results.push(events);
+      }
+    };
+
+    const p = consume();
+    ac.abort();
+    await vi.advanceTimersByTimeAsync(200);
+    await p;
+
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});
+
 describe("queryContractEvents", () => {
   it("fetches historical events for a contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue({

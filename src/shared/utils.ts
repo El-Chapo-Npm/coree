@@ -526,3 +526,14 @@ export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promis
   _inflightRequests.set(key, promise);
   return promise;
 }
+
+/**
+ * Return the number of in-flight deduplicated requests currently active.
+ * Useful for diagnostics, testing, and observability dashboards.
+ *
+ * @example
+ * console.log("in-flight:", getInflightRequestCount());
+ */
+export function getInflightRequestCount(): number {
+  return _inflightRequests.size;
+}
