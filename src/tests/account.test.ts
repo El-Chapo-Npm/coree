@@ -30,6 +30,19 @@ vi.mock("../account/getAccount", () => ({
   }),
 }));
 
+vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+  return {
+    ...actual,
+    Horizon: {
+      ...actual.Horizon,
+      Server: vi.fn(),
+    },
+  };
+});
+
+import { DEFAULT_ADDRESS_DISPLAY_CHARS } from "../shared/constants";
+
 import { streamAccount } from "../account/streamAccount";
 
 function createAccount(sequence: string): AccountInfo {
@@ -66,6 +79,58 @@ describe("account", () => {
 
     it("returns the key unchanged if already short", () => {
       expect(formatAddress("GABCD")).toBe("GABCD");
+    });
+  });
+
+  describe("getAccount", () => {
+    it("returns displayAddress containing ellipsis, prefix, and suffix matching configuration lengths", async () => {
+      const { getAccount } = await vi.importActual<typeof import("../account/getAccount")>("../account/getAccount");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+
+      const publicKey = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const mockAccount = {
+        sequence: "12345",
+        subentry_count: 3,
+        balances: [{ asset_type: "native", balance: "100.00000" }],
+      };
+
+      const mockLoadAccount = vi.fn().mockResolvedValue(mockAccount);
+      vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+        loadAccount: mockLoadAccount,
+      }) as any);
+
+      const result = await getAccount("https://horizon.test", publicKey);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.displayAddress).toContain("...");
+        const prefix = publicKey.slice(0, DEFAULT_ADDRESS_DISPLAY_CHARS + 1);
+        const suffix = publicKey.slice(-DEFAULT_ADDRESS_DISPLAY_CHARS);
+        expect(result.data.displayAddress.startsWith(prefix)).toBe(true);
+        expect(result.data.displayAddress.endsWith(suffix)).toBe(true);
+      }
+    });
+
+    it("returns short public key unchanged as displayAddress", async () => {
+      const { getAccount } = await vi.importActual<typeof import("../account/getAccount")>("../account/getAccount");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+
+      const publicKey = "GABCDEFGHI";
+      const mockAccount = {
+        sequence: "12345",
+        subentry_count: 3,
+        balances: [{ asset_type: "native", balance: "100.00000" }],
+      };
+
+      const mockLoadAccount = vi.fn().mockResolvedValue(mockAccount);
+      vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+        loadAccount: mockLoadAccount,
+      }) as any);
+
+      const result = await getAccount("https://horizon.test", publicKey);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.displayAddress).toBe(publicKey);
+      }
     });
   });
 
