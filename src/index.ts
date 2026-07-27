@@ -43,12 +43,11 @@ export type {
 } from "./wallet/types";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
-export { NETWORK_DEFAULTS } from "./network/config";
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth, NetworkSwitcher } from "./network";
+export { checkNetworkHealth, NetworkSwitcher, NETWORK_DEFAULTS } from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
