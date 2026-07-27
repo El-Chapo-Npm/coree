@@ -23,6 +23,12 @@ export interface AssetBalance {
   balance: string;
   /** Parsed float for convenience */
   balanceFloat: number;
+  /**
+   * The Horizon liquidity pool ID for `liquidity_pool_shares` balances.
+   * Populated from the `liquidity_pool_id` field returned by the Horizon API.
+   * Undefined for all other asset types.
+   */
+  liquidityPoolId?: string;
 }
 
 /**
