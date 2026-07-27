@@ -42,6 +42,20 @@ export interface PaymentParams extends MemoParams {
   memo?: string;
   /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made — the transaction is
+   * built entirely offline. Use with caution: sequence numbers can become stale
+   * if the account submits other transactions before this one is submitted,
+   * resulting in a `tx_bad_seq` error on submission.
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE. Useful when
+   * building transactions offline alongside {@link sequenceNumber}.
+   */
+  estimatedFee?: string;
 }
 
 export interface TrustlineParams extends MemoParams {
@@ -51,6 +65,18 @@ export interface TrustlineParams extends MemoParams {
   limit?: string;
   /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made — the transaction is
+   * built entirely offline. Use with caution: sequence numbers can become stale.
+   * @see PaymentParams.sequenceNumber
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE.
+   */
+  estimatedFee?: string;
 }
 
 export interface AccountCreateParams extends MemoParams {
@@ -59,6 +85,18 @@ export interface AccountCreateParams extends MemoParams {
   startingBalance: string;
   /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made — the transaction is
+   * built entirely offline. Use with caution: sequence numbers can become stale.
+   * @see PaymentParams.sequenceNumber
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE.
+   */
+  estimatedFee?: string;
 }
 
 export interface PaymentWithTrustlineParams {
@@ -78,6 +116,16 @@ export interface SwapTransactionParams {
 export interface ReverseTransactionParams {
   /** Override fee in stroops. Defaults to BASE_FEE. */
   fee?: string;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made.
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops. Overrides the `fee` field.
+   * When provided alongside `sequenceNumber`, the transaction is built entirely offline.
+   */
+  estimatedFee?: string;
 }
 
 export type PathPaymentMode = "strict-send" | "strict-receive";
@@ -97,6 +145,18 @@ export interface PathPaymentParams extends MemoParams {
   /** Intermediate assets in the payment path. If omitted, dynamically discovered. */
   path?: Array<{ assetCode?: string; assetIssuer?: string }>;
   autoFetchSequence?: boolean;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made — the transaction is
+   * built entirely offline. Use with caution: sequence numbers can become stale.
+   * @see PaymentParams.sequenceNumber
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE.
+   */
+  estimatedFee?: string;
 }
 
 export interface AtomicSwapParams extends MemoParams {
@@ -104,6 +164,16 @@ export interface AtomicSwapParams extends MemoParams {
   legA: PathPaymentParams;
   /** Second leg of the swap */
   legB: PathPaymentParams;
+  /**
+   * Pre-fetched sequence number for the source account.
+   * When provided, no Horizon `loadAccount` call is made.
+   */
+  sequenceNumber?: string;
+  /**
+   * Pre-fetched fee in stroops.
+   * When provided, this value is used instead of BASE_FEE.
+   */
+  estimatedFee?: string;
 }
 
 // ─── Multi-signature types ────────────────────────────────────────────────────
