@@ -11,12 +11,15 @@ import {
 import {
   addSignatureToEnvelope,
   connectWallet,
+  detectInstalledWallets,
   disconnectWallet,
   signTransaction,
   signTransactionOffline,
   emptyWalletState,
   collectMultiSignatures,
   diagnoseWalletConnection,
+  prioritizeWallet,
+  recommendWallets,
   removeSignatureFromEnvelope,
 } from "../wallet/index";
 import {
@@ -24,9 +27,7 @@ import {
   getSigningHistory,
   exportSigningHistory,
 } from "../wallet/signingHistory";
-import { FreighterAdapter } from "../wallet/adapters/freighter";
-import { XBullAdapter } from "../wallet/adapters/xbull";
-import { LobstrAdapter } from "../wallet/adapters/lobstr";
+import { FreighterAdapter, XBullAdapter, LobstrAdapter } from "../wallet/adapters";
 import { WalletType } from "../wallet/types";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
@@ -414,13 +415,6 @@ describe("envelope signature management (#118)", () => {
     );
   });
 });
-
-import {
-  diagnoseWalletConnection,
-  detectInstalledWallets,
-  prioritizeWallet,
-  recommendWallets,
-} from "../wallet/index";
 
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
