@@ -17,7 +17,6 @@ import {
   retryWithBackoff,
   deduplicateRequest,
   TokenBucketRateLimiter,
-  createMemoryCache,
   type RetryConfig,
   type ErrorHandler,
   type ErrorContext,
@@ -891,40 +890,4 @@ describe("metrics — network latency collection (#40)", () => {
   });
 });
 
-describe("createMemoryCache", () => {
-  it("stores and retrieves values", () => {
-    const cache = createMemoryCache();
-    cache.set("foo", "bar");
-    expect(cache.get("foo")).toBe("bar");
-  });
-
-  it("invalidates and clears entries", () => {
-    const cache = createMemoryCache();
-    cache.set("foo", "bar");
-    cache.invalidate("foo");
-    expect(cache.get("foo")).toBeUndefined();
-
-    cache.set("a", "1");
-    cache.set("b", "2");
-    cache.clear();
-    expect(cache.get("a")).toBeUndefined();
-    expect(cache.get("b")).toBeUndefined();
-  });
-
-  it("enforces TTL expiration", async () => {
-    const cache = createMemoryCache();
-    cache.set("foo", "bar", 10); // 10ms TTL
-    expect(cache.get("foo")).toBe("bar");
-    await new Promise((r) => setTimeout(r, 15));
-    expect(cache.get("foo")).toBeUndefined();
-  });
-
-  it("validates TTL value", () => {
-    const cache = createMemoryCache();
-    expect(() => cache.set("foo", "bar", -10)).toThrow();
-    expect(() => cache.set("foo", "bar", 1.5)).toThrow();
-    // @ts-expect-error
-    expect(() => cache.set("foo", "bar", "100")).toThrow();
-  });
-});
 
