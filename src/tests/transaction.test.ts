@@ -1488,6 +1488,52 @@ describe("transaction caching", () => {
       expect(result.status).toBe("ok");
       expect(mockTransactionCall).toHaveBeenCalledOnce();
     });
+
+    it("returns pending status with no ledger when ledger_attr is 0", async () => {
+      mockTransactionCall.mockResolvedValue({
+        hash: "test_hash",
+        successful: false,
+        ledger_attr: 0,
+        created_at: "2024-01-01",
+        fee_charged: "100",
+        envelope_xdr: "envelope_xdr",
+        result_xdr: "result_xdr",
+      });
+
+      const result = await getTransactionStatus(
+        networkConfig.horizonUrl,
+        "test_hash",
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.status).toBe("pending");
+        expect(result.data.ledger).toBeUndefined();
+      }
+    });
+
+    it("returns pending status with no ledger when ledger_attr is undefined", async () => {
+      mockTransactionCall.mockResolvedValue({
+        hash: "test_hash",
+        successful: false,
+        ledger_attr: undefined,
+        created_at: "2024-01-01",
+        fee_charged: "100",
+        envelope_xdr: "envelope_xdr",
+        result_xdr: "result_xdr",
+      });
+
+      const result = await getTransactionStatus(
+        networkConfig.horizonUrl,
+        "test_hash",
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.status).toBe("pending");
+        expect(result.data.ledger).toBeUndefined();
+      }
+    });
   });
 });
 
