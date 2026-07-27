@@ -49,7 +49,12 @@ import { createLogger, createTracedLogger, withLogging } from "../shared/logger"
 import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
 import type { TraceContext } from "../shared/tracing";
-import { formatAddress, generateTraceId } from "../shared/utils";
+import {
+  formatAddress,
+  generateTraceId,
+  isValidPublicKey,
+  isValidContractId,
+} from "../shared/utils";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
@@ -200,6 +205,16 @@ export interface SorokitClient {
      * Pure utility — returns string directly, cannot fail.
      */
     formatAddress(publicKey: string, chars?: number): string;
+    /**
+     * Check whether a string is a well-formed Stellar public key (G...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidPublicKey(key: string): boolean;
+    /**
+     * Check whether a string is a well-formed Stellar contract ID (C...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidContractId(id: string): boolean;
     /** Build operations to set a sponsor for an account */
     setSponsor(
       account: string,
@@ -662,6 +677,8 @@ export function createSorokitClient(
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
+      isValidPublicKey: (key) => isValidPublicKey(key),
+      isValidContractId: (id) => isValidContractId(id),
       setSponsor: (account, sponsor) =>
         applyTx(setSponsor(account, sponsor)),
       removeSponsor: (account) =>

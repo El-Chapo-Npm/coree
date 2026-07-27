@@ -1018,6 +1018,49 @@ describe("estimateFee — caching", () => {
       expect((transactionBuilderInstances[0].memo as any)?.value).toBe("hello");
     });
 
+    it("skips memo attachment when memo is an empty string (#292)", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect(transactionBuilderInstances[0].memo).toBeUndefined();
+      expect(mockAddMemo).not.toHaveBeenCalled();
+    });
+
+    it("fails payment build with TX_BUILD_FAILED when text memo exceeds the 28-byte Stellar limit (#292)", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "a".repeat(29),
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("Invalid memo for type text");
+      }
+      // The build never reaches TransactionBuilder — memo validation fails first.
+      expect(transactionBuilderInstances).toHaveLength(0);
+    });
+
     it("fails payment transaction with invalid hash memo", async () => {
       const result = await buildPaymentTransaction(
         networkConfig.horizonUrl,
