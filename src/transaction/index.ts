@@ -123,6 +123,15 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export {
+  queryTransactionHistory,
+} from "./queryTransactionHistory";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./queryTransactionHistory";
 export type {
   ExportFormat,
   ExportedTransaction,

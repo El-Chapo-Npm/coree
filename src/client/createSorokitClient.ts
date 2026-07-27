@@ -32,6 +32,7 @@ import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
 import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
+import { queryTransactionHistory } from "../transaction/queryTransactionHistory";
 import { validateDestination } from "../transaction/validateDestination";
 import type {
   DestinationValidationResult,
@@ -80,6 +81,10 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type { ExportTransactionHistoryOptions } from "../transaction/exportTransactionHistory";
+import type {
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "../transaction/queryTransactionHistory";
 import type {
   ContractMethod,
   ContractInvokeParams,
@@ -250,6 +255,14 @@ export interface SorokitClient {
       publicKey: string,
       options?: Omit<ValidateDestinationOptions, "horizonUrl">,
     ): Promise<SorokitResult<DestinationValidationResult>>;
+    /**
+     * Query transaction history with filtering, sorting, and pagination.
+     * Returns structured paginated data instead of a formatted string.
+     */
+    queryHistory(
+      publicKey: string,
+      query?: TransactionHistoryQuery,
+    ): Promise<SorokitResult<TransactionHistoryResult>>;
     /**
      * Export transaction history for an account with optional date, type, asset, and amount filters.
      * Supports CSV (default) and JSON formats.
@@ -760,6 +773,18 @@ export function createSorokitClient(
             return validateDestination(publicKey, {
               ...options,
               horizonUrl: horizonUrl,
+            });
+          },
+        ).then(applyTx),
+      queryHistory: (publicKey, query) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.queryHistory", params: { publicKey, query } },
+          () => {
+            logger.debug("transaction.queryHistory", { publicKey });
+            return queryTransactionHistory(horizonUrl, publicKey, {
+              ...query,
+              networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
             });
           },
         ).then(applyTx),
