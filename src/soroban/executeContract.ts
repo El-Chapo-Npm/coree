@@ -73,8 +73,8 @@ export async function executeContract(
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   let hash: string;
+  const rpc = createSorobanServer(rpcUrl);
   try {
-    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(
       signedXdr,
       networkConfig.networkPassphrase,
@@ -126,8 +126,6 @@ export async function executeContract(
   });
 
   try {
-    const rpc = createSorobanServer(rpcUrl);
-
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(intervalMs);
       logger?.debug("soroban.execute.poll.attempt", {
