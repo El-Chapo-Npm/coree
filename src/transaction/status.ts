@@ -4,6 +4,7 @@ import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
 import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fetch the current status of a submitted transaction by its hash.
@@ -38,7 +39,7 @@ export async function getTransactionStatus(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const tx = await server.transactions().transaction(hash).call();
 
     const result: TransactionResult = {

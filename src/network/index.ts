@@ -8,6 +8,9 @@ export { NETWORK_DEFAULTS } from "./types";
 export { getNetwork } from "./getNetwork";
 export { setNetwork } from "./setNetwork";
 
+export { NetworkSwitcher } from "./networkSwitcher";
+export type { CustomNetwork, NetworkOption, NetworkInfo, NetworkStatus, NetworkSwitchListener, NetworkStatusListener, NetworkSwitchUnsubscribe, NetworkSwitcherConfig } from "./networkSwitcher";
+
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 

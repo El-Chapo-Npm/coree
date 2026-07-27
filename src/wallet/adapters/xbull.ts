@@ -13,7 +13,17 @@ import type {
 } from "../types";
 import { ok, err, SorokitErrorCode } from "../../shared/response";
 import type { SorokitResult } from "../../shared/response";
-import { isBrowser, toMessage, isUserRejection } from "../../shared";
+import { isBrowser, isNetworkConnectivityError, isTimeoutError, isUserRejection, toMessage } from "../../shared";
+
+function describeXBullFailure(action: "connection" | "signing", cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `xBull ${action} timed out: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `xBull ${action} failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `xBull ${action} failed: ${toMessage(cause)}`;
+}
 
 export class XBullAdapter implements WalletAdapter {
   readonly walletType = WalletType.XBULL;
@@ -37,13 +47,13 @@ export class XBullAdapter implements WalletAdapter {
     } catch (cause) {
       return err(
         SorokitErrorCode.WALLET_CONNECT_FAILED,
-        `xBull connection failed: ${toMessage(cause)}`,
+        describeXBullFailure("connection", cause),
         cause,
       );
     }
   }
 
-  async disconnect(): Promise<SorokitResult<void>> {
+  async disconnect(): Promise<SorokitResult<undefined>> {
     return ok(undefined);
   }
 
@@ -68,13 +78,12 @@ export class XBullAdapter implements WalletAdapter {
       );
       return ok(signedTxXdr);
     } catch (cause) {
+      const rejected = isUserRejection(cause);
       return err(
-        isUserRejection(cause)
-          ? SorokitErrorCode.WALLET_SIGN_REJECTED
-          : SorokitErrorCode.WALLET_SIGN_FAILED,
-        isUserRejection(cause)
+        rejected ? SorokitErrorCode.WALLET_SIGN_REJECTED : SorokitErrorCode.WALLET_SIGN_FAILED,
+        rejected
           ? "User rejected the xBull signature request."
-          : `xBull signing failed: ${toMessage(cause)}`,
+          : describeXBullFailure("signing", cause),
         cause,
       );
     }

@@ -14,11 +14,12 @@ import {
   retryWithBackoff,
   toMessage,
 } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describePrepareFailure(cause: unknown): string {
   if (isTimeoutError(cause)) {
@@ -62,8 +63,8 @@ export async function prepareContractCall(
   if (metadataResult.status === "error") return metadataResult;
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
-    const horizonServer = new Horizon.Server(horizonUrl);
+    const rpc = createSorobanServer(rpcUrl);
+    const horizonServer = createHorizonServer(horizonUrl);
     const contract = new Contract(params.contractId);
 
     const sourceAccount = await horizonServer.loadAccount(params.publicKey);
@@ -74,7 +75,7 @@ export async function prepareContractCall(
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(operation)
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
       .build();
 
     const simResult = await retryWithBackoff(async () => {

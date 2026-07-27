@@ -26,6 +26,7 @@ export type {
   BalanceAlert,
   BalanceAlertRule,
   BalanceAlertCondition,
+  SponsorshipResult,
 } from "./types";
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";

@@ -9,7 +9,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import { toMessage } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { SorokitResult } from "../shared/response";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
@@ -17,6 +17,7 @@ import { deduplicateRequest } from "../shared/utils";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import type { ContractCallResult, ContractReadParams } from "./types";
 import { validateContractAbi } from "./validateContractAbi";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Read (simulate) a Soroban contract view function — no signing required.
@@ -110,8 +111,8 @@ export async function readContract(
   // Deduplicate concurrent identical reads
   const performRead = async (): Promise<SorokitResult<ContractCallResult>> => {
     try {
-      const rpc = new SorobanRpc.Server(rpcUrl);
-      const horizonServer = new Horizon.Server(horizonUrl);
+      const rpc = createSorobanServer(rpcUrl);
+      const horizonServer = createHorizonServer(horizonUrl);
       const contract = new Contract(params.contractId);
 
       const sourceAccount = await horizonServer
@@ -129,7 +130,7 @@ export async function readContract(
         networkPassphrase: networkConfig.networkPassphrase,
       })
         .addOperation(operation)
-        .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+        .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
         .build();
 
       const simResult = await rpc.simulateTransaction(tx);

@@ -13,6 +13,7 @@ import {
   connectWallet,
   disconnectWallet,
   signTransaction,
+  signTransactionOffline,
   emptyWalletState,
   collectMultiSignatures,
   diagnoseWalletConnection,
@@ -102,9 +103,12 @@ describe("wallet adapters", () => {
       }
     });
 
-    it("disconnect() always returns status ok", async () => {
+    it("disconnect() always returns status ok with undefined data (#291)", async () => {
       const result = await new FreighterAdapter(mockKit()).disconnect();
       expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
     });
 
     it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
@@ -173,7 +177,46 @@ describe("wallet module functions", () => {
     if (result.status === "ok") {
       expect(result.data.connected).toBe(false);
       expect(result.data.publicKey).toBeNull();
+      expect(result.data.walletType).toBeNull();
     }
+  });
+
+  describe("browser environment success paths (#296)", () => {
+    // FreighterAdapter.isAvailable() delegates to isBrowser(). Spying on the
+    // method is equivalent to mocking isBrowser for the scope of these tests
+    // without perturbing the global module state for other tests.
+
+    it("connectWallet() returns ok WalletState with full shape when adapter is available", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+      const result = await connectWallet(adapter);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual({
+          connected: true,
+          publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+          walletType: WalletType.FREIGHTER,
+        });
+      }
+    });
+
+    it("disconnectWallet() returns ok({ connected: false, publicKey: null, walletType: null }) in browser env", async () => {
+      const adapter = new FreighterAdapter(mockKit());
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+      const result = await disconnectWallet(adapter);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual({
+          connected: false,
+          publicKey: null,
+          walletType: null,
+        });
+      }
+    });
   });
 
   it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
@@ -981,5 +1024,122 @@ describe("switchAccount", () => {
 
     expect(setActiveAccount).toHaveBeenCalledTimes(2);
     expect(activeKey).toBe(ACCOUNT_C);
+  });
+});
+
+describe("signTransactionOffline (#145)", () => {
+  it("signs an unsigned transaction XDR with a secret key", () => {
+    const source = Keypair.random();
+    const unsigned = new TransactionBuilder(
+      new Account(source.publicKey(), "1"),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(
+        Operation.manageData({ name: "offline-sign", value: "ok" }),
+      )
+      .setTimeout(30)
+      .build()
+      .toXDR();
+
+    const result = signTransactionOffline(
+      unsigned,
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    expect(result.data).not.toBe(unsigned);
+    expect(envelopeSignatures(result.data)).toHaveLength(1);
+
+    const signedTx = TransactionBuilder.fromXDR(result.data, Networks.TESTNET);
+    expect(signedTx.signatures).toHaveLength(1);
+  });
+
+  it("returns WALLET_SIGN_FAILED for an invalid private key", () => {
+    const result = signTransactionOffline(
+      createUnsignedEnvelopeXdr(),
+      "not-a-secret-seed",
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("secret seed");
+  });
+
+  it("returns WALLET_SIGN_FAILED for empty XDR", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      "  ",
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("XDR");
+  });
+
+  it("returns WALLET_SIGN_FAILED for invalid XDR", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      "not-valid-xdr",
+      source.secret(),
+      Networks.TESTNET,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+  });
+
+  it("returns WALLET_SIGN_FAILED when network passphrase is missing", () => {
+    const source = Keypair.random();
+    const result = signTransactionOffline(
+      createUnsignedEnvelopeXdr(),
+      source.secret(),
+      "   ",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    expect(result.error.message).toContain("passphrase");
+  });
+
+  it("produces a signature that matches the source keypair hint", () => {
+    const source = Keypair.random();
+    const unsigned = new TransactionBuilder(
+      new Account(source.publicKey(), "42"),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(Operation.manageData({ name: "hint-check", value: null }))
+      .setTimeout(30)
+      .build()
+      .toXDR();
+
+    const result = signTransactionOffline(
+      unsigned,
+      source.secret(),
+      Networks.TESTNET,
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    const signatures = envelopeSignatures(result.data);
+    expect(signatures).toHaveLength(1);
+    expect(Buffer.from(signatures[0]!.hint())).toEqual(
+      Buffer.from(source.signatureHint()),
+    );
   });
 });

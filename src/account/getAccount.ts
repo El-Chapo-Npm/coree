@@ -3,6 +3,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { formatAddress, isNotFoundError, toMessage, retryWithBackoff, deduplicateRequest } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fetch full account details including all balances from Horizon.
@@ -31,7 +32,7 @@ export function getAccount(
   return deduplicateRequest(cacheKey, async () => {
     try {
       const account = await retryWithBackoff(async () => {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         return await server.loadAccount(publicKey);
       });
 

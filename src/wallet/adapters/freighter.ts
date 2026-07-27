@@ -65,7 +65,7 @@ export class FreighterAdapter implements WalletAdapter {
     }
   }
 
-  async disconnect(): Promise<SorokitResult<void>> {
+  async disconnect(): Promise<SorokitResult<undefined>> {
     // Freighter does not expose a programmatic disconnect.
     // Return success — state cleanup is the consumer's responsibility.
     return ok(undefined);

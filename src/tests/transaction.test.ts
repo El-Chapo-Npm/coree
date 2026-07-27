@@ -7,7 +7,8 @@ import {
   afterEach,
   type SpyInstance,
 } from "vitest";
-import { Asset } from "@stellar/stellar-sdk";
+import { Asset, Horizon } from "@stellar/stellar-sdk";
+import * as serverFactory from "../shared/serverFactory";
 import { createHash } from "crypto";
 import {
   estimateFee,
@@ -59,6 +60,12 @@ import {
   USDC_MAINNET_ISSUER,
   USDT_MAINNET_ISSUER,
   EURC_MAINNET_ISSUER,
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
 } from "../transaction";
 
 const {
@@ -1811,10 +1818,6 @@ function fakeAccount() {
   };
 }
 
-describe("buildReverseTransaction (#45)", () => {
-  let paymentSpy: MockInstance<any[], any>;
-  let changeTrustSpy: MockInstance<any[], any>;
-  let accountMergeSpy: MockInstance<any[], any>;
 describe.skip("buildReverseTransaction (#45)", () => {
   let paymentSpy: any;
   let changeTrustSpy: any;
@@ -2636,6 +2639,62 @@ describe("estimateFee — fee tiers", () => {
       undefined,
       undefined,
       { includeTiers: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(result.data.tiers?.economy).toBe("100");
+      expect(result.data.tiers?.standard).toBe("500");
+      expect(result.data.tiers?.fast).toBe("900");
+    }
+  });
+
+  it("omits tiers when includeTiers is not set", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: Array(10).fill({ fee_charged: "400" }),
+    });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeUndefined();
+    }
+  });
+
+  it("uses cache for fee tiers when options.cache is provided", async () => {
+    const cache = makeEmptyCache();
+    // First call: Horizon for tiers, then Horizon for median
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+      })
+      .mockResolvedValueOnce({
+        records: Array(10).fill({ fee_charged: "400" }),
+      });
+
+    await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { includeTiers: true, cache },
+    );
+
+    // The tiers should have been stored under FEE_TIERS_CACHE_KEY
+    const cachedKey = cache.setCalls.find((c) => c.key === FEE_TIERS_CACHE_KEY);
+    expect(cachedKey).toBeDefined();
+  });
+});
+
 describe("checkTrustlines", () => {
   const horizonUrl = "https://horizon-testnet.stellar.org";
   const sourcePublicKey =
@@ -2688,11 +2747,141 @@ describe("checkTrustlines", () => {
   });
 });
 
+// ─── Offline transaction building ────────────────────────────────────────────
+
+describe("offline transaction building", () => {
+  const sourcePublicKey =
+    "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination =
+    "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("buildPaymentTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    // loadAccount must NOT be called in offline mode
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildCreateAccountTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        startingBalance: "2",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildTrustlineTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        assetCode: "USDC",
+        assetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("builds transaction with custom fee in offline mode", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "99",
+        estimatedFee: "2500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildPathPayment offline — uses sequenceNumber and skips loadAccount when path provided", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        mode: "strict-send",
+        amount: "100",
+        slippageAmount: "95",
+        sendAssetCode: "XLM",
+        destAssetCode: "USDC",
+        destAssetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+        path: [{ assetCode: "BTC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6" }],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+});
+
 describe("buildBulkTrustlines", () => {
   const networkConfig: ResolvedNetworkConfig = {
     horizonUrl: "https://horizon-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
-    networkType: "testnet",
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
   };
   const sourcePublicKey =
     "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
@@ -2727,23 +2916,29 @@ describe("buildBulkTrustlines", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
-      expect(result.data.tiers).toBeDefined();
-      expect(result.data.tiers?.economy).toBe("100");
-      expect(result.data.tiers?.standard).toBe("500");
-      expect(result.data.tiers?.fast).toBe("900");
+      expect(typeof result.data).toBe("string");
+      expect(result.data.length).toBeGreaterThan(0);
     }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
   });
 
   it("omits tiers when includeTiers is not set", async () => {
-    mockTransactionsCall.mockResolvedValueOnce({
-      records: Array(10).fill({ fee_charged: "400" }),
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
     });
 
-    const result = await estimateFee(
-      networkConfig.rpcUrl,
+    const result = await buildBulkTrustlines(
       networkConfig.horizonUrl,
       networkConfig,
-      { kind: "xdr", transactionXdr: MOCK_XDR },
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)],
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(2);
@@ -2766,36 +2961,6 @@ describe("buildBulkTrustlines", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
-      expect(result.data.tiers).toBeUndefined();
-    }
-  });
-
-  it("uses cache for fee tiers when options.cache is provided", async () => {
-    const cache = makeEmptyCache();
-    // First call: Horizon for tiers, then Horizon for median
-    mockTransactionsCall
-      .mockResolvedValueOnce({
-        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
-      })
-      .mockResolvedValueOnce({
-        records: Array(10).fill({ fee_charged: "400" }),
-      });
-
-    await estimateFee(
-      networkConfig.rpcUrl,
-      networkConfig.horizonUrl,
-      networkConfig,
-      { kind: "xdr", transactionXdr: MOCK_XDR },
-      undefined,
-      undefined,
-      { includeTiers: true, cache },
-    );
-
-    // The tiers should have been stored under FEE_TIERS_CACHE_KEY
-    const cachedKey = cache.setCalls.find((c) => c.key === FEE_TIERS_CACHE_KEY);
-    expect(cachedKey).toBeDefined();
-  });
-});
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(1);
@@ -2965,11 +3130,16 @@ describe("validateDestination", () => {
     expect(res.data.formatValid).toBe(false);
     expect(res.data.error?.code).toBe("INVALID_FORMAT");
 
+  });
+});
+
 describe("Asset Factories", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
   it("creates a native asset", () => {
     const asset = nativeAsset();
     expect(asset.isNative()).toBe(true);
   });
+
 
   it("returns isSource true when destination matches source", async () => {
     const { validateDestination } = await import("../transaction/validateDestination");
@@ -2987,11 +3157,6 @@ describe("Asset Factories", () => {
     expect(res.status).toBe("error");
     if (res.status !== "error") return;
     expect(res.error.message).toContain("horizonUrl is required");
-    const customIssuer =
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const customAsset = usdcAsset(customIssuer);
-    expect(customAsset.getCode()).toBe("USDC");
-    expect(customAsset.getIssuer()).toBe(customIssuer);
   });
 
   it("returns exists true when account exists on-chain", async () => {
@@ -3024,11 +3189,6 @@ describe("Asset Factories", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.exists).toBe(false);
     expect(res.data.error?.code).toBe("ACCOUNT_NOT_FOUND");
-    const customIssuer =
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const customAsset = usdtAsset(customIssuer);
-    expect(customAsset.getCode()).toBe("USDT");
-    expect(customAsset.getIssuer()).toBe(customIssuer);
   });
 
   it("returns FETCH_FAILED when Horizon check fails with other error", async () => {
@@ -3044,10 +3204,563 @@ describe("Asset Factories", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.exists).toBeNull();
     expect(res.data.error?.code).toBe("FETCH_FAILED");
+  });
+});
+
+describe("Asset Factories", () => {
+  it("creates a native asset", () => {
+    const asset = nativeAsset();
+    expect(asset.isNative()).toBe(true);
+  });
+
+  it("creates a USDC asset with mainnet or custom issuer", () => {
+    const asset = usdcAsset();
+    expect(asset.getCode()).toBe("USDC");
+    expect(asset.getIssuer()).toBe(USDC_MAINNET_ISSUER);
+
+    const customIssuer =
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdcAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDC");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+
+  it("creates a USDT asset with mainnet or custom issuer", () => {
+    const asset = usdtAsset();
+    expect(asset.getCode()).toBe("USDT");
+    expect(asset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+
+    const customIssuer =
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdtAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDT");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+
+  it("creates a EURC asset with mainnet or custom issuer", () => {
+    const asset = eurcAsset();
+    expect(asset.getCode()).toBe("EURC");
+    expect(asset.getIssuer()).toBe(EURC_MAINNET_ISSUER);
+
     const customIssuer =
       "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     const customAsset = eurcAsset(customIssuer);
     expect(customAsset.getCode()).toBe("EURC");
     expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+});
+
+import { compareFeeAcrossNetworks } from "../transaction/index";
+import type { ResolvedNetworkConfig as NetworkConfig } from "../shared/types";
+
+describe("compareFeeAcrossNetworks", () => {
+  const mainnetConfig: NetworkConfig = {
+    network: "mainnet",
+    horizonUrl: "https://horizon.stellar.org",
+    rpcUrl: "https://mainnet.stellar.validationcloud.io/v1/soroban/rpc",
+    networkPassphrase: "Public Global Stellar Network ; September 2015",
+  };
+
+  const testnetConfig: NetworkConfig = {
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+  };
+
+  beforeEach(() => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockResolvedValue({ records: [] });
+  });
+
+  it("returns a result entry for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.network).toBe("mainnet");
+    expect(results[1]?.network).toBe("testnet");
+  });
+
+  it("returns fee estimates for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    for (const { estimate } of results) {
+      expect(estimate.status).toBe("ok");
+      if (estimate.status === "ok") {
+        expect(typeof estimate.data.fee).toBe("string");
+        expect(typeof estimate.data.feeFloat).toBe("number");
+        expect(typeof estimate.data.feeXlm).toBe("string");
+      }
+    }
+  });
+
+  it("returns fees in the same order as the input networks array", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[1]?.network).toBe("mainnet");
+  });
+
+  it("returns an error result for a network when simulation fails", async () => {
+    mocks.simulateTransaction
+      .mockResolvedValueOnce({ minResourceFee: "500" })
+      .mockRejectedValueOnce(new Error("RPC unreachable"));
+
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.estimate.status).toBe("ok");
+    expect(results[1]?.estimate.status).toBe("error");
+  });
+
+  it("handles a single network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig],
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[0]?.estimate.status).toBe("ok");
+  });
+
+  it("returns an empty array when no networks are provided", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [],
+    );
+
+    expect(results).toEqual([]);
+  });
+});
+
+describe("transaction templates (#146)", () => {
+  beforeEach(() => {
+    clearTransactionTemplates();
+  });
+
+  afterEach(() => {
+    clearTransactionTemplates();
+  });
+
+  it("saves and loads a template without parameter substitution", () => {
+    const saved = saveTransactionTemplate("xlm-payment", {
+      kind: "payment",
+      description: "Send XLM",
+      params: {
+        destination: "{{destination}}",
+        amount: "{{amount}}",
+        assetCode: "XLM",
+      },
+    });
+
+    expect(saved.status).toBe("ok");
+    if (saved.status !== "ok") return;
+
+    const loaded = loadTemplate("xlm-payment");
+    expect(loaded.status).toBe("ok");
+    if (loaded.status !== "ok") return;
+    expect(loaded.data.kind).toBe("payment");
+    expect(loaded.data.description).toBe("Send XLM");
+    expect(loaded.data.params).toEqual({
+      destination: "{{destination}}",
+      amount: "{{amount}}",
+      assetCode: "XLM",
+    });
+  });
+
+  it("applies parameter substitution when loading a template", () => {
+    saveTransactionTemplate("xlm-payment", {
+      kind: "payment",
+      params: {
+        destination: "{{destination}}",
+        amount: "{{amount}}",
+        memo: "pay {{memoTag}}",
+      },
+    });
+
+    const loaded = loadTemplate("xlm-payment", {
+      destination: "GDESTINATIONADDRESSFORTEMPLATE000000000000000000000",
+      amount: "12.5",
+      memoTag: "invoice-42",
+    });
+
+    expect(loaded.status).toBe("ok");
+    if (loaded.status !== "ok") return;
+    expect(loaded.data.params).toEqual({
+      destination: "GDESTINATIONADDRESSFORTEMPLATE000000000000000000000",
+      amount: "12.5",
+      memo: "pay invoice-42",
+    });
+  });
+
+  it("substitutes nested object and array placeholders", () => {
+    saveTransactionTemplate("path-pay", {
+      kind: "pathPayment",
+      params: {
+        destination: "{{destination}}",
+        path: [{ assetCode: "{{hopAsset}}", assetIssuer: "{{hopIssuer}}" }],
+        nested: { amount: "{{amount}}" },
+      },
+    });
+
+    const loaded = loadTemplate("path-pay", {
+      destination: "GDEST",
+      hopAsset: "USDC",
+      hopIssuer: "GISSUER",
+      amount: "5",
+    });
+
+    expect(loaded.status).toBe("ok");
+    if (loaded.status !== "ok") return;
+    expect(loaded.data.params).toEqual({
+      destination: "GDEST",
+      path: [{ assetCode: "USDC", assetIssuer: "GISSUER" }],
+      nested: { amount: "5" },
+    });
+  });
+
+  it("returns an error when required parameters are missing", () => {
+    saveTransactionTemplate("xlm-payment", {
+      kind: "payment",
+      params: {
+        destination: "{{destination}}",
+        amount: "{{amount}}",
+      },
+    });
+
+    const loaded = loadTemplate("xlm-payment", { destination: "GDEST" });
+    expect(loaded.status).toBe("error");
+    if (loaded.status !== "error") return;
+    expect(loaded.error.code).toBe(SorokitErrorCode.UNKNOWN);
+    expect(loaded.error.message).toContain("amount");
+  });
+
+  it("returns TX_NOT_FOUND when loading an unknown template", () => {
+    const loaded = loadTemplate("missing-template");
+    expect(loaded.status).toBe("error");
+    if (loaded.status !== "error") return;
+    expect(loaded.error.code).toBe(SorokitErrorCode.TX_NOT_FOUND);
+  });
+
+  it("rejects empty template names and invalid kinds", () => {
+    const emptyName = saveTransactionTemplate("  ", {
+      kind: "payment",
+      params: { amount: "1" },
+    });
+    expect(emptyName.status).toBe("error");
+
+    const badKind = saveTransactionTemplate("bad", {
+      kind: "not-a-kind" as any,
+      params: { amount: "1" },
+    });
+    expect(badKind.status).toBe("error");
+  });
+
+  it("lists, deletes, and clears templates from the default store", () => {
+    saveTransactionTemplate("a", { kind: "payment", params: { amount: "1" } });
+    saveTransactionTemplate("b", { kind: "trustline", params: { assetCode: "USDC" } });
+
+    const listed = listTransactionTemplates();
+    expect(listed.status).toBe("ok");
+    if (listed.status !== "ok") return;
+    expect(listed.data).toEqual(["a", "b"]);
+
+    const deleted = deleteTransactionTemplate("a");
+    expect(deleted.status).toBe("ok");
+    if (deleted.status !== "ok") return;
+    expect(deleted.data).toBe(true);
+    expect(listTransactionTemplates().data).toEqual(["b"]);
+
+    clearTransactionTemplates();
+    expect(listTransactionTemplates().data).toEqual([]);
+  });
+
+  it("supports a custom persistent-style store implementation", () => {
+    const customStore = new InMemoryTransactionTemplateStore();
+
+    const saved = saveTransactionTemplate(
+      "custom-payment",
+      {
+        kind: "payment",
+        params: { destination: "{{destination}}", amount: "10" },
+      },
+      customStore,
+    );
+    expect(saved.status).toBe("ok");
+
+    // Default store should remain empty
+    expect(listTransactionTemplates().data).toEqual([]);
+
+    const loaded = loadTemplate(
+      "custom-payment",
+      { destination: "GCUSTOM" },
+      customStore,
+    );
+    expect(loaded.status).toBe("ok");
+    if (loaded.status !== "ok") return;
+    expect(loaded.data.params).toEqual({
+      destination: "GCUSTOM",
+      amount: "10",
+    });
+  });
+
+  it("does not allow external mutation of stored templates", () => {
+    const template = {
+      kind: "payment" as const,
+      params: { destination: "{{destination}}", amount: "1" },
+    };
+
+    saveTransactionTemplate("immutable", template);
+    template.params.amount = "999";
+
+    const loaded = loadTemplate("immutable");
+    expect(loaded.status).toBe("ok");
+    if (loaded.status !== "ok") return;
+    expect(loaded.data.params.amount).toBe("1");
+
+    (loaded.data.params as { amount: string }).amount = "777";
+    const loadedAgain = loadTemplate("immutable");
+    expect(loadedAgain.status).toBe("ok");
+    if (loadedAgain.status !== "ok") return;
+    expect(loadedAgain.data.params.amount).toBe("1");
+  });
+
+  describe("streamTransactions", () => {
+    const horizonUrl = "https://horizon-test.stellar.org";
+    const publicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    it("yields ok({ transactions, nextCursor }) and advances cursor from paging_token", async () => {
+      const mockRecords = [
+        {
+          hash: "hash1",
+          successful: true,
+          ledger_attr: 100,
+          created_at: "2026-01-01T00:00:00Z",
+          fee_charged: "100",
+          envelope_xdr: "env1",
+          result_xdr: "res1",
+          paging_token: "pt_100",
+        },
+      ];
+
+      const callFn = vi.fn().mockResolvedValue({ records: mockRecords });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+      const transactionsFn = vi.fn().mockReturnValue({ forAccount: forAccountFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: transactionsFn,
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("ok");
+      if (results[0].status === "ok") {
+        expect(results[0].data.transactions).toHaveLength(1);
+        expect(results[0].data.transactions[0].hash).toBe("hash1");
+        expect(results[0].data.nextCursor).toBe("pt_100");
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("stops after maxPolls: 2", async () => {
+      let pollCount = 0;
+      const callFn = vi.fn().mockImplementation(async () => {
+        pollCount++;
+        return {
+          records: [
+            {
+              hash: `hash_${pollCount}`,
+              successful: true,
+              ledger_attr: 100,
+              created_at: "2026-01-01T00:00:00Z",
+              fee_charged: "100",
+              envelope_xdr: "env1",
+              result_xdr: "res1",
+              paging_token: `pt_${pollCount}`,
+            },
+          ],
+        };
+      });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 2,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results.length).toBeLessThanOrEqual(2);
+      vi.restoreAllMocks();
+    });
+
+    it("terminates when AbortSignal is aborted", async () => {
+      const controller = new AbortController();
+
+      const callFn = vi.fn().mockImplementation(async () => {
+        controller.abort();
+        return { records: [] };
+      });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(
+        horizonUrl,
+        publicKey,
+        { intervalMs: 10, emitOnStart: true },
+        controller.signal,
+      );
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results.length).toBeLessThanOrEqual(1);
+      vi.restoreAllMocks();
+    });
+
+    it("yields nextCursor: null when page.records is empty", async () => {
+      const callFn = vi.fn().mockResolvedValue({ records: [] });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("ok");
+      if (results[0].status === "ok") {
+        expect(results[0].data.transactions).toHaveLength(0);
+        expect(results[0].data.nextCursor).toBeNull();
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("yields ACCOUNT_NOT_FOUND on 404 error", async () => {
+      const err404 = new Error("Not Found");
+      (err404 as unknown as { response: { status: number } }).response = { status: 404 };
+
+      const callFn = vi.fn().mockRejectedValue(err404);
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("error");
+      if (results[0].status === "error") {
+        expect(results[0].error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("yields TX_SUBMIT_FAILED on non-404 error", async () => {
+      const callFn = vi.fn().mockRejectedValue(new Error("Network Error"));
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("error");
+      if (results[0].status === "error") {
+        expect(results[0].error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      }
+
+      vi.restoreAllMocks();
+    });
   });
 });
