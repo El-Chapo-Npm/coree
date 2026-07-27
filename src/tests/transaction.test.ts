@@ -7,7 +7,8 @@ import {
   afterEach,
   type SpyInstance,
 } from "vitest";
-import { Asset } from "@stellar/stellar-sdk";
+import { Asset, Horizon } from "@stellar/stellar-sdk";
+import * as serverFactory from "../shared/serverFactory";
 import { createHash } from "crypto";
 import {
   estimateFee,
@@ -2746,11 +2747,141 @@ describe("checkTrustlines", () => {
   });
 });
 
+// ─── Offline transaction building ────────────────────────────────────────────
+
+describe("offline transaction building", () => {
+  const sourcePublicKey =
+    "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination =
+    "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("buildPaymentTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    // loadAccount must NOT be called in offline mode
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildCreateAccountTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        startingBalance: "2",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildTrustlineTransaction offline — uses sequenceNumber and skips loadAccount", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        assetCode: "USDC",
+        assetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("builds transaction with custom fee in offline mode", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        sequenceNumber: "99",
+        estimatedFee: "2500",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildPathPayment offline — uses sequenceNumber and skips loadAccount when path provided", async () => {
+    mockLoadAccount.mockRejectedValue(new Error("should not be called"));
+
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        mode: "strict-send",
+        amount: "100",
+        slippageAmount: "95",
+        sendAssetCode: "XLM",
+        destAssetCode: "USDC",
+        destAssetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6",
+        sequenceNumber: "42",
+        estimatedFee: "500",
+        path: [{ assetCode: "BTC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6" }],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+});
+
 describe("buildBulkTrustlines", () => {
   const networkConfig: ResolvedNetworkConfig = {
     horizonUrl: "https://horizon-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
-    networkType: "testnet",
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
   };
   const sourcePublicKey =
     "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
@@ -2769,6 +2900,29 @@ describe("buildBulkTrustlines", () => {
   });
 
   it("builds multiple changeTrust operations", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)],
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(typeof result.data).toBe("string");
+      expect(result.data.length).toBeGreaterThan(0);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it("omits tiers when includeTiers is not set", async () => {
     mockLoadAccount.mockResolvedValueOnce({
       id: sourcePublicKey,
       sequence: "12345",
@@ -2975,7 +3129,17 @@ describe("validateDestination", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.formatValid).toBe(false);
     expect(res.data.error?.code).toBe("INVALID_FORMAT");
+
   });
+});
+
+describe("Asset Factories", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
+  it("creates a native asset", () => {
+    const asset = nativeAsset();
+    expect(asset.isNative()).toBe(true);
+  });
+
 
   it("returns isSource true when destination matches source", async () => {
     const { validateDestination } = await import("../transaction/validateDestination");
@@ -3083,6 +3247,104 @@ describe("Asset Factories", () => {
     const customAsset = eurcAsset(customIssuer);
     expect(customAsset.getCode()).toBe("EURC");
     expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+});
+
+import { compareFeeAcrossNetworks } from "../transaction/index";
+import type { ResolvedNetworkConfig as NetworkConfig } from "../shared/types";
+
+describe("compareFeeAcrossNetworks", () => {
+  const mainnetConfig: NetworkConfig = {
+    network: "mainnet",
+    horizonUrl: "https://horizon.stellar.org",
+    rpcUrl: "https://mainnet.stellar.validationcloud.io/v1/soroban/rpc",
+    networkPassphrase: "Public Global Stellar Network ; September 2015",
+  };
+
+  const testnetConfig: NetworkConfig = {
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+  };
+
+  beforeEach(() => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockResolvedValue({ records: [] });
+  });
+
+  it("returns a result entry for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.network).toBe("mainnet");
+    expect(results[1]?.network).toBe("testnet");
+  });
+
+  it("returns fee estimates for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    for (const { estimate } of results) {
+      expect(estimate.status).toBe("ok");
+      if (estimate.status === "ok") {
+        expect(typeof estimate.data.fee).toBe("string");
+        expect(typeof estimate.data.feeFloat).toBe("number");
+        expect(typeof estimate.data.feeXlm).toBe("string");
+      }
+    }
+  });
+
+  it("returns fees in the same order as the input networks array", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[1]?.network).toBe("mainnet");
+  });
+
+  it("returns an error result for a network when simulation fails", async () => {
+    mocks.simulateTransaction
+      .mockResolvedValueOnce({ minResourceFee: "500" })
+      .mockRejectedValueOnce(new Error("RPC unreachable"));
+
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.estimate.status).toBe("ok");
+    expect(results[1]?.estimate.status).toBe("error");
+  });
+
+  it("handles a single network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig],
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[0]?.estimate.status).toBe("ok");
+  });
+
+  it("returns an empty array when no networks are provided", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [],
+    );
+
+    expect(results).toEqual([]);
   });
 });
 
@@ -3276,5 +3538,229 @@ describe("transaction templates (#146)", () => {
     expect(loadedAgain.status).toBe("ok");
     if (loadedAgain.status !== "ok") return;
     expect(loadedAgain.data.params.amount).toBe("1");
+  });
+
+  describe("streamTransactions", () => {
+    const horizonUrl = "https://horizon-test.stellar.org";
+    const publicKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    it("yields ok({ transactions, nextCursor }) and advances cursor from paging_token", async () => {
+      const mockRecords = [
+        {
+          hash: "hash1",
+          successful: true,
+          ledger_attr: 100,
+          created_at: "2026-01-01T00:00:00Z",
+          fee_charged: "100",
+          envelope_xdr: "env1",
+          result_xdr: "res1",
+          paging_token: "pt_100",
+        },
+      ];
+
+      const callFn = vi.fn().mockResolvedValue({ records: mockRecords });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+      const transactionsFn = vi.fn().mockReturnValue({ forAccount: forAccountFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: transactionsFn,
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("ok");
+      if (results[0].status === "ok") {
+        expect(results[0].data.transactions).toHaveLength(1);
+        expect(results[0].data.transactions[0].hash).toBe("hash1");
+        expect(results[0].data.nextCursor).toBe("pt_100");
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("stops after maxPolls: 2", async () => {
+      let pollCount = 0;
+      const callFn = vi.fn().mockImplementation(async () => {
+        pollCount++;
+        return {
+          records: [
+            {
+              hash: `hash_${pollCount}`,
+              successful: true,
+              ledger_attr: 100,
+              created_at: "2026-01-01T00:00:00Z",
+              fee_charged: "100",
+              envelope_xdr: "env1",
+              result_xdr: "res1",
+              paging_token: `pt_${pollCount}`,
+            },
+          ],
+        };
+      });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 2,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results.length).toBeLessThanOrEqual(2);
+      vi.restoreAllMocks();
+    });
+
+    it("terminates when AbortSignal is aborted", async () => {
+      const controller = new AbortController();
+
+      const callFn = vi.fn().mockImplementation(async () => {
+        controller.abort();
+        return { records: [] };
+      });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(
+        horizonUrl,
+        publicKey,
+        { intervalMs: 10, emitOnStart: true },
+        controller.signal,
+      );
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results.length).toBeLessThanOrEqual(1);
+      vi.restoreAllMocks();
+    });
+
+    it("yields nextCursor: null when page.records is empty", async () => {
+      const callFn = vi.fn().mockResolvedValue({ records: [] });
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("ok");
+      if (results[0].status === "ok") {
+        expect(results[0].data.transactions).toHaveLength(0);
+        expect(results[0].data.nextCursor).toBeNull();
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("yields ACCOUNT_NOT_FOUND on 404 error", async () => {
+      const err404 = new Error("Not Found");
+      (err404 as unknown as { response: { status: number } }).response = { status: 404 };
+
+      const callFn = vi.fn().mockRejectedValue(err404);
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("error");
+      if (results[0].status === "error") {
+        expect(results[0].error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
+
+      vi.restoreAllMocks();
+    });
+
+    it("yields TX_SUBMIT_FAILED on non-404 error", async () => {
+      const callFn = vi.fn().mockRejectedValue(new Error("Network Error"));
+      const cursorFn = vi.fn().mockReturnValue({ call: callFn });
+      const orderFn = vi.fn().mockReturnValue({ cursor: cursorFn, call: callFn });
+      const limitFn = vi.fn().mockReturnValue({ order: orderFn });
+      const forAccountFn = vi.fn().mockReturnValue({ limit: limitFn });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        transactions: vi.fn().mockReturnValue({ forAccount: forAccountFn }),
+      } as unknown as Horizon.Server);
+
+      const stream = streamTransactions(horizonUrl, publicKey, {
+        maxPolls: 1,
+        intervalMs: 10,
+        emitOnStart: true,
+      });
+
+      const results = [];
+      for await (const res of stream) {
+        results.push(res);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0].status).toBe("error");
+      if (results[0].status === "error") {
+        expect(results[0].error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      }
+
+      vi.restoreAllMocks();
+    });
   });
 });

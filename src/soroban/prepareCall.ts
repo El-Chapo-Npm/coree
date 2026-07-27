@@ -14,7 +14,7 @@ import {
   retryWithBackoff,
   toMessage,
 } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
@@ -75,7 +75,7 @@ export async function prepareContractCall(
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(operation)
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
       .build();
 
     const simResult = await retryWithBackoff(async () => {

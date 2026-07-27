@@ -286,14 +286,14 @@ export async function estimateFee(
     let simulated = true;
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
+      // minResourceFee already includes inclusion fee; no extra BASE_FEE is added.
       feeStroops = parseInt(simResult.minResourceFee ?? BASE_FEE, 10);
-      // Add base fee on top of resource fee for total
-      feeStroops += parseInt(BASE_FEE, 10);
     } else if (SorobanRpc.Api.isSimulationError(simResult)) {
-      // Simulation failed — fall back to base fee
+      // Simulation failed. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     } else {
+      // Simulation unavailable. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     }

@@ -6,7 +6,7 @@ import {
   setTraceContext,
   createAutoTracedFetch,
   type TraceContext,
-} from "../../shared/tracing";
+} from "../shared/tracing";
 
 describe("createTraceContext", () => {
   it("generates a traceId when not provided", () => {

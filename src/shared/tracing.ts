@@ -95,8 +95,8 @@ export function createTraceContext(
   return {
     traceId: id,
     spanId,
-    parentSpanId: options.parentSpanId,
-    tags: options.tags,
+    ...(options.parentSpanId !== undefined ? { parentSpanId: options.parentSpanId } : {}),
+    ...(options.tags !== undefined ? { tags: options.tags } : {}),
   };
 }
 
@@ -191,6 +191,6 @@ export function createAutoTracedFetch(tags?: Record<string, string>): {
   fetch: typeof fetch;
   context: TraceContext;
 } {
-  const context = createTraceContext(undefined, { tags });
+  const context = createTraceContext(undefined, tags !== undefined ? { tags } : {});
   return { fetch: createTracedFetch(context), context };
 }

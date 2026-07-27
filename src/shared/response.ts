@@ -55,6 +55,10 @@ export enum SorokitErrorCode {
   NETWORK_ERROR = "NETWORK_ERROR",
   INVALID_NETWORK = "INVALID_NETWORK",
 
+  // Validation / Config
+  INVALID_CONFIG = "INVALID_CONFIG",
+  INVALID_ADDRESS = "INVALID_ADDRESS",
+
   // Generic
   UNKNOWN = "UNKNOWN",
 }
