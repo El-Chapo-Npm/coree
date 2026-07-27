@@ -351,7 +351,7 @@ export async function* streamTransactions(
       const hasBaseline = lastEmitted !== undefined;
       const changed = !hasBaseline || !sameSnapshot(lastEmitted, transactionPage);
       if (hasBaseline) adjustInterval(changed);
-      cursor = nextCursor ?? cursor;
+      if (nextCursor !== null) cursor = nextCursor;
 
       if (changed) {
         lastEmitted = transactionPage;
