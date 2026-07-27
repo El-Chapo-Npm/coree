@@ -1,5 +1,4 @@
-import { rpc as SorobanRpc, TransactionBuilder, Address } from "@stellar/stellar-sdk";
-import { createHash } from "crypto";
+import { rpc as SorobanRpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
@@ -10,38 +9,12 @@ import {
 } from "../shared";
 import type { SimulateTransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
+import { createSimulationCacheKey } from "./contractCallIdentity";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 export interface SimulateTransactionOptions {
   cache?: SorokitCache;
   ttlMs?: number;
-}
-
-function tryGetCacheKey(
-  transactionXdr: string,
-  networkPassphrase: string,
-): string | undefined {
-  try {
-    const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
-    if (!("operations" in tx)) return undefined;
-
-    const op = tx.operations.find((o) => o.type === "invokeHostFunction");
-    if (!op) return undefined;
-
-    const hostFn = (op as any).func;
-    if (!hostFn || hostFn.arm() !== "invokeContract") return undefined;
-
-    const invokeArgs = hostFn.invokeContract();
-    const scAddr = invokeArgs.contractAddress();
-    const contractId = Address.fromScAddress(scAddr).toString();
-    const method = invokeArgs.functionName().toString("utf8");
-    const argsXdr = invokeArgs.args().map((arg: any) => arg.toXDR("base64")).join("");
-
-    const inputString = contractId + method + argsXdr;
-    return createHash("sha256").update(inputString).digest("hex");
-  } catch {
-    return undefined;
-  }
 }
 
 function describeSimulationFailure(cause: unknown): string {
@@ -80,7 +53,9 @@ export async function simulateTransaction(
   }
 
   const cache = options?.cache;
-  const cacheKey = cache ? tryGetCacheKey(transactionXdr, networkPassphrase) : undefined;
+  const cacheKey = cache
+    ? createSimulationCacheKey(transactionXdr, networkPassphrase)
+    : undefined;
 
   if (cache && cacheKey) {
     const cached = cache.get(cacheKey);

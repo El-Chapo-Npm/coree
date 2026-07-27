@@ -14,7 +14,8 @@ import {
   DEFAULT_POLL_INTERVAL_MS,
 } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import type { SorobanPollConfig } from "./types";
+import type { ContractStateTracker, SorobanPollConfig } from "./types";
+import { extractContractCallIdentity } from "./contractCallIdentity";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describeContractSubmissionFailure(cause: unknown): string {
@@ -57,6 +58,7 @@ export async function executeContract(
   signedXdr: string,
   pollConfig?: SorobanPollConfig,
   logger?: SorokitLogger,
+  stateTracker?: ContractStateTracker,
 ): Promise<SorokitResult<string>> {
   logger?.debug("soroban.execute", {
     operation: "soroban.execute",
@@ -141,6 +143,13 @@ export async function executeContract(
       const statusResult = await rpc.getTransaction(hash);
 
       if (statusResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+        const identity = extractContractCallIdentity(
+          signedXdr,
+          networkConfig.networkPassphrase,
+        );
+        if (identity && stateTracker) {
+          await stateTracker.markContractModified(identity.contractId);
+        }
         logger?.info("soroban.execute.poll", {
           operation: "soroban.execute.poll",
           status: "ok",

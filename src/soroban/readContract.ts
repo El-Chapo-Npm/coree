@@ -5,9 +5,7 @@ import {
   scValToNative,
   rpc as SorobanRpc,
   TransactionBuilder,
-  xdr,
 } from "@stellar/stellar-sdk";
-import { createHash } from "crypto";
 import { toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { SorokitResult } from "../shared/response";
@@ -15,6 +13,7 @@ import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { deduplicateRequest } from "../shared/utils";
 import { validateContractMethodMetadata } from "./contractMetadata";
+import { createContractReadCacheKey } from "./contractCallIdentity";
 import type { ContractCallResult, ContractReadParams } from "./types";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
@@ -50,23 +49,6 @@ import { createHorizonServer, createSorobanServer } from "../shared/serverFactor
  *   console.log("Return value:", result.data.result);
  * }
  */
-function generateCacheKey(
-  contractId: string,
-  method: string,
-  args?: xdr.ScVal[],
-): string {
-  let argsXdr = "";
-  try {
-    argsXdr = args?.map((arg) => arg.toXDR("base64")).join("") ?? "";
-  } catch {
-    // If args can't be serialized to XDR (e.g., in tests with mocks),
-    // use JSON stringification as a fallback
-    argsXdr = args ? JSON.stringify(args) : "";
-  }
-  const inputString = contractId + method + argsXdr;
-  return createHash("sha256").update(inputString).digest("hex");
-}
-
 export async function readContract(
   rpcUrl: string,
   horizonUrl: string,
@@ -95,10 +77,18 @@ export async function readContract(
   if (metadataResult.status === "error") return metadataResult;
 
   const cache = params.cache;
-  const cacheKey = cache
-    ? generateCacheKey(params.contractId, params.method, params.args)
-    : undefined;
   const ttlMs = params.ttlMs ?? 5 * 60 * 1000; // Default 5 minutes
+  const revision = cache
+    ? await params.stateTracker?.getRevision(params.contractId) ?? 0
+    : 0;
+  const cacheKey = cache
+    ? createContractReadCacheKey(
+        params.contractId,
+        params.method,
+        params.args,
+        revision,
+      )
+    : undefined;
 
   // Check cache if available
   if (cache && cacheKey) {

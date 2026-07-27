@@ -19,6 +19,7 @@ export interface ContractEventSubscriptionOptions {
   horizonUrl: string;
   intervalMs?: number;
   fetch?: typeof fetch;
+  limit?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +37,7 @@ function readEventRecord(raw: unknown): ContractEvent | null {
 
   return {
     ...(raw as Record<string, unknown>),
-    id: String(raw.id ?? raw.event_id ?? raw.eventId ?? ""),
+    id: String(raw.id ?? raw.event_id ?? raw.eventId ?? raw.paging_token ?? ""),
     contractId: String(raw.contractId ?? raw.contract_id ?? raw.contractID ?? ""),
     name: String(raw.name ?? raw.event_type ?? raw.eventType ?? ""),
     topics,
@@ -169,6 +170,9 @@ export async function queryContractEvents(
     const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/events`);
     endpoint.searchParams.set("contractId", contractId);
     endpoint.searchParams.set("order", "desc");
+    if (options?.limit !== undefined) {
+      endpoint.searchParams.set("limit", String(options.limit));
+    }
 
     const response = await requestFetch(endpoint.toString());
     if (!response.ok) {
