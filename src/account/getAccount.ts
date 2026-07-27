@@ -62,11 +62,16 @@ export function getAccount(
 
         return {
           assetType: "liquidity_pool_shares" as const,
-          assetCode: "LP",
+          // Use the pool ID as the assetCode so callers can distinguish
+          // between different liquidity pool positions. Fall back to "LP"
+          // only if the field is absent (should not happen with Horizon).
+          assetCode: (b as { liquidity_pool_id?: string }).liquidity_pool_id ?? "LP",
           assetIssuer: null,
           balance: b.balance,
           balanceFloat: parseFloat(b.balance),
+          liquidityPoolId: (b as { liquidity_pool_id?: string }).liquidity_pool_id,
         };
+
       });
 
       return ok({
