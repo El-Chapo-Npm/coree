@@ -158,6 +158,83 @@ export function subscribeContractEvents(
   };
 }
 
+/**
+ * Stream Soroban contract events as an async generator.
+ *
+ * Polls the Horizon endpoint at a configurable interval and yields new events
+ * as they arrive. Deduplicates by event ID so the same event is never yielded
+ * twice. The generator runs until the provided `AbortSignal` is aborted or the
+ * caller breaks out of the `for await` loop.
+ *
+ * This is the generator-based counterpart of `subscribeContractEvents()` and
+ * is more ergonomic when using `for await...of` loops.
+ *
+ * @param contractId - Soroban contract address to monitor.
+ * @param filter     - Optional filter criteria (name, topicPatterns, contractId).
+ * @param options    - Horizon URL, polling interval, and optional fetch override.
+ * @param signal     - Optional AbortSignal to stop the stream externally.
+ * @yields Arrays of new `ContractEvent` objects as they are detected.
+ *
+ * @example
+ * const ac = new AbortController();
+ * setTimeout(() => ac.abort(), 30_000);
+ * for await (const events of streamContractEvents("C123", undefined, { horizonUrl }, ac.signal)) {
+ *   console.log("new events:", events);
+ * }
+ */
+export async function* streamContractEvents(
+  contractId: string,
+  filter: ContractEventFilter | undefined,
+  options: ContractEventSubscriptionOptions,
+  signal?: AbortSignal,
+): AsyncGenerator<ContractEvent[]> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const requestFetch = options.fetch ?? fetch;
+  const seenEventIds = new Set<string>();
+
+  while (!signal?.aborted) {
+    try {
+      const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/ledgers`);
+      endpoint.searchParams.set("order", "desc");
+      endpoint.searchParams.set("limit", "1");
+
+      const response = await requestFetch(endpoint.toString());
+      if (response.ok) {
+        const payload = await response.json();
+        const events = readRecords(payload)
+          .filter((event) => {
+            const eventContractId = typeof event.contractId === "string" ? event.contractId : "";
+            return eventContractId === contractId;
+          })
+          .filter((event) => matchesFilter(event, filter));
+
+        const newEvents = events.filter((event) => {
+          const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
+          if (!id || seenEventIds.has(id)) return false;
+          seenEventIds.add(id);
+          return true;
+        });
+
+        if (newEvents.length > 0) {
+          yield newEvents;
+        }
+      }
+    } catch {
+      // Ignore transient polling failures and continue the stream.
+    }
+
+    if (signal?.aborted) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, intervalMs);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+  }
+}
+
 export async function queryContractEvents(
   contractId: string,
   filter?: ContractEventFilter,
