@@ -106,6 +106,52 @@ export interface AtomicSwapParams extends MemoParams {
   legB: PathPaymentParams;
 }
 
+// ─── Multi-signature types ────────────────────────────────────────────────────
+
+/**
+ * A signer entry for a multi-sig envelope.
+ * Maps a public key to its signing weight.
+ */
+export interface MultiSigSigner {
+  /** Stellar public key (G...) of this signer. */
+  publicKey: string;
+  /** Signing weight this key contributes. Must be >= 1. */
+  weight: number;
+}
+
+/**
+ * Parameters for building a multi-sig transaction envelope.
+ */
+export interface MultiSigEnvelopeParams extends MemoParams {
+  /** Operations to include — same as a normal payment/trustline/etc. The XDR of an already-built transaction. */
+  transactionXdr: string;
+  /** Signers expected to co-sign this envelope. */
+  signers: MultiSigSigner[];
+  /**
+   * Minimum cumulative weight required to authorise the transaction.
+   * Submission is blocked until collected signature weights meet this threshold.
+   */
+  threshold: number;
+}
+
+/**
+ * A partially- or fully-signed multi-sig envelope ready for incremental signature collection.
+ */
+export interface MultiSigEnvelope {
+  /** Current envelope XDR (base64). Updated by collectSignature(). */
+  envelopeXdr: string;
+  /** Signers declared at envelope creation. */
+  signers: MultiSigSigner[];
+  /** Required cumulative weight to authorise submission. */
+  threshold: number;
+  /** Public keys whose signatures have been collected so far. */
+  collectedSigners: string[];
+  /** Cumulative weight of collected signatures. */
+  collectedWeight: number;
+  /** True when collectedWeight >= threshold. */
+  thresholdMet: boolean;
+}
+
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
 export type {
   ExportFormat,

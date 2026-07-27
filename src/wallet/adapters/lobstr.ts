@@ -13,7 +13,23 @@ import type {
 } from "../types";
 import { ok, err, SorokitErrorCode } from "../../shared/response";
 import type { SorokitResult } from "../../shared/response";
-import { isBrowser, toMessage, isUserRejection } from "../../shared";
+import {
+  isBrowser,
+  isNetworkConnectivityError,
+  isTimeoutError,
+  isUserRejection,
+  toMessage,
+} from "../../shared";
+
+function describeLobstrFailure(action: "connection" | "signing", cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `Lobstr ${action} timed out: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Lobstr ${action} failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Lobstr ${action} failed: ${toMessage(cause)}`;
+}
 
 export class LobstrAdapter implements WalletAdapter {
   readonly walletType = WalletType.LOBSTR;
@@ -37,7 +53,7 @@ export class LobstrAdapter implements WalletAdapter {
     } catch (cause) {
       return err(
         SorokitErrorCode.WALLET_CONNECT_FAILED,
-        `Lobstr connection failed: ${toMessage(cause)}`,
+        describeLobstrFailure("connection", cause),
         cause,
       );
     }
@@ -68,13 +84,12 @@ export class LobstrAdapter implements WalletAdapter {
       );
       return ok(signedTxXdr);
     } catch (cause) {
+      const rejected = isUserRejection(cause);
       return err(
-        isUserRejection(cause)
-          ? SorokitErrorCode.WALLET_SIGN_REJECTED
-          : SorokitErrorCode.WALLET_SIGN_FAILED,
-        isUserRejection(cause)
+        rejected ? SorokitErrorCode.WALLET_SIGN_REJECTED : SorokitErrorCode.WALLET_SIGN_FAILED,
+        rejected
           ? "User rejected the Lobstr signature request."
-          : `Lobstr signing failed: ${toMessage(cause)}`,
+          : describeLobstrFailure("signing", cause),
         cause,
       );
     }
