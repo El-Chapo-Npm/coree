@@ -9,7 +9,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import { toMessage } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { SorokitResult } from "../shared/response";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
@@ -130,7 +130,7 @@ export async function readContract(
         networkPassphrase: networkConfig.networkPassphrase,
       })
         .addOperation(operation)
-        .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+        .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
         .build();
 
       const simResult = await rpc.simulateTransaction(tx);
