@@ -1,4 +1,4 @@
-import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
+import { Keypair, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SorokitCache } from "../shared/cache";
 import { SorokitErrorCode } from "../shared/response";
@@ -11,10 +11,12 @@ import {
   snapshotContractState,
 } from "../soroban/contractSnapshot";
 import { buildContractDeploy } from "../soroban/deployContract";
+import { executeContract } from "../soroban/executeContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
 import { simulateContractSafe } from "../soroban/simulateContractSafe";
 import { simulateTransaction } from "../soroban/simulateTransaction";
+import { createContractStateTracker } from "../soroban/contractStateTracker";
 import {
   subscribeContractEvents,
   queryContractEvents,
@@ -30,6 +32,9 @@ const {
   mockIsSimulationError,
   mockAssembleTransaction,
   mockScValToNative,
+  mockSendTransaction,
+  mockGetTransaction,
+  mockFromScAddress,
 } = vi.hoisted(() => ({
   mockGetLedgerEntries: vi.fn(),
   mockLoadAccount: vi.fn(),
@@ -38,6 +43,9 @@ const {
   mockIsSimulationError: vi.fn(),
   mockAssembleTransaction: vi.fn(),
   mockScValToNative: vi.fn(),
+  mockSendTransaction: vi.fn(),
+  mockGetTransaction: vi.fn(),
+  mockFromScAddress: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
@@ -87,6 +95,10 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   return {
     ...actual,
     BASE_FEE: "100",
+    Address: {
+      ...actual.Address,
+      fromScAddress: mockFromScAddress,
+    },
     Contract: MockContract,
     Horizon: {
       Server: vi.fn().mockImplementation(() => ({
@@ -100,6 +112,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       Server: vi.fn().mockImplementation(() => ({
         getLedgerEntries: mockGetLedgerEntries,
         simulateTransaction: mockSimulateTransaction,
+        sendTransaction: mockSendTransaction,
+        getTransaction: mockGetTransaction,
       })),
       Api: {
         ...actual.rpc.Api,
@@ -139,6 +153,9 @@ const networkConfig: ResolvedNetworkConfig = {
   rpcUrl: "https://soroban-testnet.stellar.org",
   networkPassphrase: "Test SDF Network ; September 2015",
 };
+
+const MOCK_XDR = "AAAAAQAAAAA=";
+const MOCK_SIGNED_XDR = "AAAAAgAAAAA=";
 
 const contractAbi: ContractAbi = {
   methods: [
@@ -293,6 +310,20 @@ function resetRpcSimulationMocks(): void {
   });
   mockScValToNative.mockReset();
   mockScValToNative.mockReturnValue("native-value");
+  mockSendTransaction.mockReset();
+  mockSendTransaction.mockResolvedValue({
+    status: "PENDING",
+    hash: "tx-hash",
+  });
+  mockGetTransaction.mockReset();
+  mockGetTransaction.mockResolvedValue({
+    status: "SUCCESS",
+    txHash: "tx-hash",
+  });
+  mockFromScAddress.mockReset();
+  mockFromScAddress.mockReturnValue({
+    toString: () => "CACHED-CONTRACT-ID",
+  });
 }
 
 describe("soroban contract metadata", () => {
@@ -976,6 +1007,7 @@ describe.skip("soroban contract ABI validation", () => {
   describe("readContract caching (#88)", () => {
     beforeEach(() => {
       resetRpcSimulationMocks();
+      vi.restoreAllMocks();
     });
 
     it("behaves as before if no cache option is provided (backward compatible)", async () => {
@@ -1203,6 +1235,212 @@ describe.skip("soroban contract ABI validation", () => {
       );
 
       expect(cache.ttlMs).toBe(5 * 60 * 1000);
+    });
+
+    it("invalidates cached reads after a successful local contract modification", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 60_000,
+      });
+      const fromXdrSpy = vi.spyOn(TransactionBuilder, "fromXDR").mockReturnValue({
+        operations: [
+          {
+            type: "invokeHostFunction",
+            func: {
+              arm: () => "invokeContract",
+              invokeContract: () => ({
+                contractAddress: () => ({ mocked: true }),
+                functionName: () => ({ toString: () => "increment" }),
+                args: () => [],
+              }),
+            },
+          },
+        ],
+      } as unknown as ReturnType<typeof TransactionBuilder.fromXDR>);
+      mockFromScAddress.mockReturnValue({ toString: () => id });
+
+      const result1 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          stateTracker,
+        },
+      );
+
+      const executeResult = await executeContract(
+        networkConfig.rpcUrl,
+        networkConfig,
+        MOCK_SIGNED_XDR,
+        { maxAttempts: 1, intervalMs: 0 },
+        undefined,
+        stateTracker,
+      );
+
+      const result2 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          stateTracker,
+        },
+      );
+
+      expect(result1.status).toBe("ok");
+      expect(executeResult.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+      expect(fromXdrSpy).toHaveBeenCalled();
+    });
+
+    it("does not invalidate cached reads when contract execution fails", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 60_000,
+      });
+      mockGetTransaction.mockResolvedValue({ status: "FAILED", txHash: "tx-hash" });
+      vi.spyOn(TransactionBuilder, "fromXDR").mockReturnValue({
+        operations: [
+          {
+            type: "invokeHostFunction",
+            func: {
+              arm: () => "invokeContract",
+              invokeContract: () => ({
+                contractAddress: () => ({ mocked: true }),
+                functionName: () => ({ toString: () => "increment" }),
+                args: () => [],
+              }),
+            },
+          },
+        ],
+      } as unknown as ReturnType<typeof TransactionBuilder.fromXDR>);
+      mockFromScAddress.mockReturnValue({ toString: () => id });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      const executeResult = await executeContract(
+        networkConfig.rpcUrl,
+        networkConfig,
+        MOCK_SIGNED_XDR,
+        { maxAttempts: 1, intervalMs: 0 },
+        undefined,
+        stateTracker,
+      );
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(executeResult.status).toBe("error");
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("invalidates cached reads when the latest contract event changes", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-1", contractId: id }] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-1", contractId: id }] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-2", contractId: id }] } }),
+        });
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 0,
+        fetch: fetchMock,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps cached reads when event lookup fails", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const fetchMock = vi.fn().mockRejectedValue(new Error("event lookup failed"));
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 0,
+        fetch: fetchMock,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it("generates different cache keys for different arguments", async () => {

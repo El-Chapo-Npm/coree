@@ -90,5 +90,12 @@ export async function invokeContract(
   }
 
   // ── Step 3: Execute ────────────────────────────────────────────────────────
-  return executeContract(rpcUrl, networkConfig, signedXdr, pollConfig, logger);
+  return executeContract(
+    rpcUrl,
+    networkConfig,
+    signedXdr,
+    pollConfig,
+    logger,
+    params.stateTracker,
+  );
 }

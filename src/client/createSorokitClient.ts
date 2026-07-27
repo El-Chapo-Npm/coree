@@ -44,6 +44,7 @@ import { simulateTransaction } from "../soroban/simulateTransaction";
 import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
+import { createContractStateTracker } from "../soroban/contractStateTracker";
 import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
 import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
@@ -506,11 +507,14 @@ export function createSorokitClient(
   // Set up distributed tracing with correlation IDs (#212).
   const traceContext = createTraceContext(traceId);
   const tracedFetch = createTracedFetch(traceContext);
-  setTracedFetch(tracedFetch);
+  
 
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
+  const contractStateTracker = cache
+    ? createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch })
+    : undefined;
   const feeEstimateOptions: FeeEstimateOptions = {
     ...(cache !== undefined ? { cache } : {}),
     ...(config.onFeeSurge !== undefined
@@ -863,6 +867,7 @@ export function createSorokitClient(
               signedXdr,
               pollConfig ?? defaultPollConfig,
               logger,
+              contractStateTracker,
             ),
         ).then(applyTx),
       invoke: (params, signFn, pollConfig) =>
@@ -879,7 +884,12 @@ export function createSorokitClient(
                   rpcUrl,
                   networkConfig,
                   horizonUrl,
-                  params,
+                  {
+                    ...params,
+                    ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                      ? { stateTracker: contractStateTracker }
+                      : {}),
+                  },
                   signFn,
                   pollConfig ?? defaultPollConfig,
                   logger,
@@ -895,7 +905,13 @@ export function createSorokitClient(
               logger,
               "soroban.read",
               { contractId: params.contractId, method: params.method },
-              () => readContract(rpcUrl, horizonUrl, networkConfig, params),
+              () =>
+                readContract(rpcUrl, horizonUrl, networkConfig, {
+                  ...params,
+                  ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                    ? { stateTracker: contractStateTracker }
+                    : {}),
+                }),
             ),
         ).then(applyTx),
     },
