@@ -15,6 +15,7 @@ import {
 } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorobanPollConfig } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describeContractSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -72,8 +73,8 @@ export async function executeContract(
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   let hash: string;
+  const rpc = createSorobanServer(rpcUrl);
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
     const tx = TransactionBuilder.fromXDR(
       signedXdr,
       networkConfig.networkPassphrase,
@@ -125,8 +126,6 @@ export async function executeContract(
   });
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
-
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(intervalMs);
       logger?.debug("soroban.execute.poll.attempt", {

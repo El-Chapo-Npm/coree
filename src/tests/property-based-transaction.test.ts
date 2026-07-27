@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
-import { Keypair, TransactionBuilder, Networks, Asset, Memo } from "@stellar/stellar-sdk";
+import { Keypair, Account, TransactionBuilder, Operation, Networks, Asset, Memo } from "@stellar/stellar-sdk";
 import type { Transaction } from "@stellar/stellar-sdk";
 import {
   createTextMemo,
@@ -58,7 +58,7 @@ describe("Property-Based Testing for Transaction Builders", () => {
         feeStroopsArb,
         asciiTextMemoArb,
         (sourceKp, destPk, amount, seqNum, fee, memoText) => {
-          const sourceAccount = new (TransactionBuilder as any).Account(
+          const sourceAccount = new Account(
             sourceKp.publicKey(),
             seqNum,
           );
@@ -68,7 +68,7 @@ describe("Property-Based Testing for Transaction Builders", () => {
             networkPassphrase: TESTNET_PASSPHRASE,
           })
             .addOperation(
-              (TransactionBuilder as any).Operation.payment({
+              Operation.payment({
                 destination: destPk,
                 asset: Asset.native(),
                 amount,
@@ -122,7 +122,7 @@ describe("Property-Based Testing for Transaction Builders", () => {
         validPublicKeyArb,
         positiveAmountArb,
         (sourceKp, signerKp, destPk, amount) => {
-          const sourceAccount = new (TransactionBuilder as any).Account(
+          const sourceAccount = new Account(
             sourceKp.publicKey(),
             "100",
           );
@@ -132,7 +132,7 @@ describe("Property-Based Testing for Transaction Builders", () => {
             networkPassphrase: TESTNET_PASSPHRASE,
           })
             .addOperation(
-              (TransactionBuilder as any).Operation.payment({
+              Operation.payment({
                 destination: destPk,
                 asset: Asset.native(),
                 amount,

@@ -18,6 +18,7 @@ import {
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { PreparedContractCall } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 const MAX_WASM_SIZE = 256 * 1024; // 256 KB
 
@@ -56,7 +57,7 @@ export async function buildContractDeploy(
   }
 
   try {
-    const rpc = new SorobanRpc.Server(options.rpcUrl);
+    const rpc = createSorobanServer(options.rpcUrl);
     const horizonServer = new Horizon.Server(options.horizonUrl);
 
     // Get deployer account for sequence number

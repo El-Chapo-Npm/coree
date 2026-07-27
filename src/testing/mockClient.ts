@@ -37,7 +37,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 // ─── Default fixtures ─────────────────────────────────────────────────────────
 
 export const MOCK_PUBLIC_KEY =
-  "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+  "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
 
 export const MOCK_NETWORK_CONFIG: ResolvedNetworkConfig = {
   network: "testnet",

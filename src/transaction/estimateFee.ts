@@ -22,6 +22,7 @@ import {
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
@@ -136,7 +137,7 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const page = await server.transactions().order("desc").limit(FEE_TIERS_TX_LIMIT).call();
 
     const fees = page.records.map(
@@ -233,7 +234,7 @@ export async function estimateFee(
     } else {
       // Build a minimal sample payment transaction to simulate
       const { publicKey, destination, amount, assetCode, assetIssuer } = input;
-      const horizonServer = new Horizon.Server(horizonUrl);
+      const horizonServer = createHorizonServer(horizonUrl);
       const sourceAccount = await horizonServer.loadAccount(publicKey);
 
       let asset: Asset;
@@ -277,7 +278,7 @@ export async function estimateFee(
     }
 
     // Simulate via Soroban RPC
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
 
@@ -285,14 +286,14 @@ export async function estimateFee(
     let simulated = true;
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
+      // minResourceFee already includes inclusion fee; no extra BASE_FEE is added.
       feeStroops = parseInt(simResult.minResourceFee ?? BASE_FEE, 10);
-      // Add base fee on top of resource fee for total
-      feeStroops += parseInt(BASE_FEE, 10);
     } else if (SorobanRpc.Api.isSimulationError(simResult)) {
-      // Simulation failed — fall back to base fee
+      // Simulation failed. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     } else {
+      // Simulation unavailable. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     }

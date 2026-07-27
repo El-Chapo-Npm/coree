@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
-import { SorokitErrorCode } from "../shared/response";
+import { SorokitErrorCode, err, ok } from "../shared/response";
+import { WalletType } from "../wallet/types";
+import type { WalletAdapter } from "../wallet/types";
 
 describe("createSorokitClient", () => {
   it("creates a client for testnet", () => {
@@ -141,6 +143,76 @@ describe("createSorokitClient", () => {
       expect(typeof stream[Symbol.asyncIterator]).toBe("function");
       // Consume one iteration to verify it's a working generator
       await stream.next();
+    }
+  });
+
+  it("wallet.connect propagates error from failing adapter", async () => {
+    const clientRes = createSorokitClient({ network: "testnet" });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const mockFailingAdapter: WalletAdapter = {
+        walletType: WalletType.FREIGHTER,
+        isAvailable: () => true,
+        connect: async () => err(SorokitErrorCode.WALLET_CONNECT_FAILED, "Connect failed"),
+        disconnect: async () => ok(undefined),
+        signTransaction: async () => err(SorokitErrorCode.WALLET_SIGN_FAILED, "Sign failed"),
+      };
+      const res = await clientRes.data.wallet.connect(mockFailingAdapter);
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+      }
+    }
+  });
+
+  it("wallet.signTransaction propagates WALLET_SIGN_REJECTED error", async () => {
+    const clientRes = createSorokitClient({ network: "testnet" });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const mockRejectingAdapter: WalletAdapter = {
+        walletType: WalletType.FREIGHTER,
+        isAvailable: () => true,
+        connect: async () => ok("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        disconnect: async () => ok(undefined),
+        signTransaction: async () => err(SorokitErrorCode.WALLET_SIGN_REJECTED, "User rejected"),
+      };
+      const res = await clientRes.data.wallet.signTransaction(mockRejectingAdapter, { xdr: "AAAA" });
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+      }
+    }
+  });
+
+  it("account.get returns ACCOUNT_NOT_FOUND when Horizon returns 404", async () => {
+    const clientRes = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "https://horizon-404-test.example.com",
+      fetchFn: async () => new Response(JSON.stringify({ status: 404, title: "Not Found" }), { status: 404 }),
+    });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const res = await clientRes.data.account.get("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
+    }
+  });
+
+  it("account.getBalances propagates error when getAccount fails", async () => {
+    const clientRes = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "https://horizon-404-test.example.com",
+      fetchFn: async () => new Response(JSON.stringify({ status: 404, title: "Not Found" }), { status: 404 }),
+    });
+    expect(clientRes.status).toBe("ok");
+    if (clientRes.status === "ok") {
+      const res = await clientRes.data.account.getBalances("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      expect(res.status).toBe("error");
+      if (res.status === "error") {
+        expect(res.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
     }
   });
 });
