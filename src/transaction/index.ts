@@ -149,6 +149,16 @@ export type {
   ValidateDestinationOptions,
 } from "./validateDestination";
 export {
+  buildMultiSigEnvelope,
+  collectSignature,
+  validateMultiSigThreshold,
+} from "./multiSig";
+export type {
+  MultiSigSigner,
+  MultiSigEnvelopeParams,
+  MultiSigEnvelope,
+} from "./types";
+export {
   saveTransactionTemplate,
   loadTemplate,
   listTransactionTemplates,

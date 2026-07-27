@@ -113,6 +113,16 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./transaction/validateDestination";
+export {
+  buildMultiSigEnvelope,
+  collectSignature,
+  validateMultiSigThreshold,
+} from "./transaction/multiSig";
+export type {
+  MultiSigSigner,
+  MultiSigEnvelopeParams,
+  MultiSigEnvelope,
+} from "./transaction/types";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
@@ -240,7 +250,14 @@ export {
   ok,
 } from "./shared/response";
 export type { SorokitError, SorokitResult } from "./shared/response";
-export { generateTraceId } from "./shared/utils";
+export { generateTraceId, TokenBucketRateLimiter } from "./shared/utils";
+export type {
+  EndpointRateLimitConfig,
+  RateLimiterBucketMetrics,
+  RateLimiterMetricEvent,
+  RateLimiterMetrics,
+  RateLimiterEventType,
+} from "./shared/utils";
 
 // ─── Distributed tracing (#212) ────────────────────────────────────────────
 export {
