@@ -13,6 +13,7 @@ import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { PaymentParams, TrustlineParams, AccountCreateParams } from "./types";
 import { validateIssuer } from "../shared/validateIssuer";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /** Context TTL: 5 minutes */
 export const TRANSACTION_CONTEXT_TTL_MS = 5 * 60 * 1000;
@@ -91,7 +92,7 @@ export async function createTransactionContext(
   publicKey: string,
 ): Promise<SorokitResult<TransactionBuilderContext>> {
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     let currentAccount = await server.loadAccount(publicKey);
     let cachedAt = Date.now();
 

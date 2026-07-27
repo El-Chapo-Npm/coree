@@ -3,6 +3,7 @@ import type { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 export type ExportFormat = "csv" | "json" | "CSV" | "JSON";
 
@@ -62,20 +63,20 @@ export interface ExportTransactionHistoryOptions {
   networkPassphrase?: string;
 }
 
-const FALLBACK_PASSPHRASE = "Test SDF Network ; September 2015";
-const HORIZON_PAGE_LIMIT = 200;
+export const FALLBACK_PASSPHRASE = "Test SDF Network ; September 2015";
+export const HORIZON_PAGE_LIMIT = 200;
 
-function parseTimestamp(value: string | Date | undefined): number | undefined {
+export function parseTimestamp(value: string | Date | undefined): number | undefined {
   if (value === undefined || value === null) return undefined;
   const ts = value instanceof Date ? value.getTime() : Date.parse(value);
   return Number.isFinite(ts) ? ts : undefined;
 }
 
-function normalizeTypeString(val: string): string {
+export function normalizeTypeString(val: string): string {
   return val.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function escapeCsvField(value: string | number | boolean | null | undefined): string {
+export function escapeCsvField(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) {
     return "";
   }
@@ -140,7 +141,7 @@ interface ExtractedOperation {
   amount: string;
 }
 
-function formatAssetString(assetObj: any): string {
+export function formatAssetString(assetObj: any): string {
   if (!assetObj) return "XLM";
   if (typeof assetObj.isNative === "function" && assetObj.isNative()) {
     return "XLM";
@@ -154,7 +155,7 @@ function formatAssetString(assetObj: any): string {
   return "XLM";
 }
 
-function extractOperationsFromXdr(
+export function extractOperationsFromXdr(
   envelopeXdr: string,
   txSourceAccount: string,
   passphrase?: string,
@@ -303,7 +304,7 @@ export async function exportTransactionHistory(
   const exportedTransactions: ExportedTransaction[] = [];
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     let cursor: string | undefined;
     let keepFetching = true;
 

@@ -1,5 +1,6 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import type { SorokitCache } from "../shared/cache";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /** Number of recent transactions used to compute the median fee baseline. */
 export const RECENT_TX_LIMIT = 10;
@@ -51,7 +52,7 @@ export async function fetchRecentMedianFee(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const page = await server
       .transactions()
       .order("desc")

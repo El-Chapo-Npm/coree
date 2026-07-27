@@ -6,6 +6,9 @@
 /** Default transaction timeout in seconds */
 export const DEFAULT_TX_TIMEOUT_SECONDS = 30;
 
+/** Default Soroban transaction timeout in seconds */
+export const DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS = 300;
+
 /** Default Soroban polling: max attempts before giving up */
 export const DEFAULT_POLL_MAX_ATTEMPTS = 20;
 

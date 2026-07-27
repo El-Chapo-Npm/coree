@@ -15,7 +15,7 @@ export interface SorokitCache {
   clear(): void;
 }
 
-export function createMemoryCache(): SorokitCache {
+export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
   const store = new Map<string, { value: unknown; expiresAt?: number }>();
 
   return {
@@ -29,11 +29,12 @@ export function createMemoryCache(): SorokitCache {
       return entry.value;
     },
     set(key: string, value: unknown, ttlMs?: number): void {
-      if (ttlMs !== undefined) {
-        if (typeof ttlMs !== 'number' || ttlMs <= 0 || !Number.isInteger(ttlMs)) {
+      const finalTtlMs = ttlMs ?? defaultTtlMs;
+      if (finalTtlMs !== undefined) {
+        if (typeof finalTtlMs !== 'number' || finalTtlMs <= 0 || !Number.isInteger(finalTtlMs)) {
           throw new Error('TTL must be a positive integer');
         }
-        store.set(key, { value, expiresAt: Date.now() + ttlMs });
+        store.set(key, { value, expiresAt: Date.now() + finalTtlMs });
       } else {
         store.set(key, { value });
       }

@@ -18,6 +18,8 @@ import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
+import { setSponsor, removeSponsor } from "../account/sponsorship";
+import type { SponsorshipResult } from "../account/sponsorship";
 import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
@@ -30,6 +32,7 @@ import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
 import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
+import { queryTransactionHistory } from "../transaction/queryTransactionHistory";
 import { validateDestination } from "../transaction/validateDestination";
 import type {
   DestinationValidationResult,
@@ -42,8 +45,11 @@ import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
+import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
+import { setTracedFetch } from "../shared/serverFactory";
+import type { TraceContext } from "../shared/tracing";
 import { formatAddress, generateTraceId } from "../shared/utils";
-import { ok } from "../shared/response";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
 import { wrapCache } from "../shared/cache";
@@ -75,6 +81,10 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type { ExportTransactionHistoryOptions } from "../transaction/exportTransactionHistory";
+import type {
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "../transaction/queryTransactionHistory";
 import type {
   ContractMethod,
   ContractInvokeParams,
@@ -136,6 +146,10 @@ export interface SorokitClient {
   readonly trustedIssuers: string[] | null;
   /** Correlation ID stamped onto every error and log entry from this client. */
   readonly traceId: string;
+  /** Distributed trace context for this client instance (#212). */
+  readonly traceContext: TraceContext;
+  /** Get the current trace context (null if none set). */
+  readonly getTraceContext: () => TraceContext | null;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -185,6 +199,13 @@ export interface SorokitClient {
      * Pure utility — returns string directly, cannot fail.
      */
     formatAddress(publicKey: string, chars?: number): string;
+    /** Build operations to set a sponsor for an account */
+    setSponsor(
+      account: string,
+      sponsor: string,
+    ): SorokitResult<SponsorshipResult>;
+    /** Build operations to remove sponsorship from an account */
+    removeSponsor(account: string): SorokitResult<SponsorshipResult>;
   };
 
   readonly transaction: {
@@ -234,6 +255,14 @@ export interface SorokitClient {
       publicKey: string,
       options?: Omit<ValidateDestinationOptions, "horizonUrl">,
     ): Promise<SorokitResult<DestinationValidationResult>>;
+    /**
+     * Query transaction history with filtering, sorting, and pagination.
+     * Returns structured paginated data instead of a formatted string.
+     */
+    queryHistory(
+      publicKey: string,
+      query?: TransactionHistoryQuery,
+    ): Promise<SorokitResult<TransactionHistoryResult>>;
     /**
      * Export transaction history for an account with optional date, type, asset, and amount filters.
      * Supports CSV (default) and JSON formats.
@@ -301,6 +330,135 @@ export interface SorokitClient {
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
+function isValidUrlString(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate client configuration on startup (#137).
+ * Checks required fields, types, URL formats, and optional interface implementations.
+ */
+export function validateClientConfig(
+  config: SorokitClientConfig,
+): SorokitResult<void> {
+  if (!config || typeof config !== "object") {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Configuration must be an object",
+    );
+  }
+
+  const validNetworks = ["mainnet", "testnet", "futurenet"];
+  if (!config.network || !validNetworks.includes(config.network)) {
+    return err(
+      SorokitErrorCode.INVALID_NETWORK,
+      `Invalid network type: ${String(config.network)}. Must be one of: mainnet, testnet, futurenet`,
+    );
+  }
+
+  if (config.horizonUrl !== undefined) {
+    if (typeof config.horizonUrl !== "string" || !isValidUrlString(config.horizonUrl)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid horizonUrl: ${String(config.horizonUrl)}`,
+      );
+    }
+  }
+
+  if (config.rpcUrl !== undefined) {
+    if (typeof config.rpcUrl !== "string" || !isValidUrlString(config.rpcUrl)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid rpcUrl: ${String(config.rpcUrl)}`,
+      );
+    }
+  }
+
+  if (config.cache !== undefined && config.cache !== null) {
+    const c = config.cache as any;
+    if (
+      typeof c !== "object" ||
+      typeof c.get !== "function" ||
+      typeof c.set !== "function" ||
+      (typeof c.invalidate !== "function" && typeof c.delete !== "function")
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Cache interface must implement get, set, and invalidate/delete methods",
+      );
+    }
+  }
+
+  if (config.logger !== undefined && config.logger !== null) {
+    const l = config.logger as any;
+    if (
+      typeof l !== "object" ||
+      typeof l.debug !== "function" ||
+      typeof l.info !== "function" ||
+      typeof l.warn !== "function" ||
+      typeof l.error !== "function"
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Logger interface must implement debug, info, warn, and error methods",
+      );
+    }
+  }
+
+  if (config.errorHandler !== undefined && config.errorHandler !== null) {
+    if (typeof config.errorHandler !== "function") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "ErrorHandler must be a function",
+      );
+    }
+  }
+
+  if (config.errorCodeTransformer !== undefined && config.errorCodeTransformer !== null) {
+    if (typeof config.errorCodeTransformer !== "function") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "ErrorCodeTransformer must be a function",
+      );
+    }
+  }
+
+  if (config.maxTxPerSecond !== undefined) {
+    if (typeof config.maxTxPerSecond !== "number" || isNaN(config.maxTxPerSecond) || config.maxTxPerSecond <= 0) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "maxTxPerSecond must be a positive number",
+      );
+    }
+  }
+
+  if (config.logLevel !== undefined) {
+    const validLogLevels = ["off", "debug", "info", "warn", "error"];
+    if (!validLogLevels.includes(config.logLevel as string)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid logLevel: ${String(config.logLevel)}`,
+      );
+    }
+  }
+
+  if (config.trustedIssuers !== undefined && config.trustedIssuers !== null) {
+    if (!Array.isArray(config.trustedIssuers)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "trustedIssuers must be an array of public keys",
+      );
+    }
+  }
+
+  return ok(undefined);
+}
+
 /**
  * Create a sorokit-core client instance.
  *
@@ -323,6 +481,11 @@ export interface SorokitClient {
 export function createSorokitClient(
   config: SorokitClientConfig,
 ): SorokitResult<SorokitClient> {
+  const validationResult = validateClientConfig(config);
+  if (validationResult.status === "error") {
+    return validationResult as SorokitResult<SorokitClient>;
+  }
+
   const networkResult = resolveNetwork(config.network, {
     horizonUrl: config.horizonUrl,
     rpcUrl: config.rpcUrl,
@@ -339,6 +502,12 @@ export function createSorokitClient(
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
   const logger = createTracedLogger(baseLogger, traceId);
+
+  // Set up distributed tracing with correlation IDs (#212).
+  const traceContext = createTraceContext(traceId);
+  const tracedFetch = createTracedFetch(traceContext);
+  setTracedFetch(tracedFetch);
+
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
@@ -377,6 +546,8 @@ export function createSorokitClient(
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
+    traceContext,
+    getTraceContext,
 
     wallet: {
       connect: (adapter) => {
@@ -487,6 +658,10 @@ export function createSorokitClient(
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
+      setSponsor: (account, sponsor) =>
+        applyTx(setSponsor(account, sponsor)),
+      removeSponsor: (account) =>
+        applyTx(removeSponsor(account)),
     },
 
     transaction: {
@@ -598,6 +773,18 @@ export function createSorokitClient(
             return validateDestination(publicKey, {
               ...options,
               horizonUrl: horizonUrl,
+            });
+          },
+        ).then(applyTx),
+      queryHistory: (publicKey, query) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.queryHistory", params: { publicKey, query } },
+          () => {
+            logger.debug("transaction.queryHistory", { publicKey });
+            return queryTransactionHistory(horizonUrl, publicKey, {
+              ...query,
+              networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
             });
           },
         ).then(applyTx),

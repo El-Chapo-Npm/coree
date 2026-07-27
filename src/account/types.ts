@@ -74,3 +74,5 @@ export interface BalanceAlert {
   /** Signed percentage change since the previous poll, or null when not computable. */
   changePercent: number | null;
 }
+
+export type { SponsorshipResult } from "./sponsorship";

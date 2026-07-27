@@ -79,6 +79,9 @@ export {
   buildPathPayment,
   buildAtomicSwap,
   buildAccountMerge,
+  checkTrustlines,
+  buildBulkTrustlines,
+  clearSequenceCache,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
@@ -91,6 +94,8 @@ export {
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
 export { validateTransaction } from "./validateTransaction";
+export { validateTransactionOffline } from "./validateTransactionOffline";
+export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
@@ -125,6 +130,15 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export {
+  queryTransactionHistory,
+} from "./queryTransactionHistory";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./queryTransactionHistory";
 export type {
   ExportFormat,
   ExportedTransaction,
@@ -153,6 +167,30 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+export {
+  buildMultiSigEnvelope,
+  collectSignature,
+  validateMultiSigThreshold,
+} from "./multiSig";
+export type {
+  MultiSigSigner,
+  MultiSigEnvelopeParams,
+  MultiSigEnvelope,
+} from "./types";
+export {
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
+} from "./templates";
+export type {
+  TransactionTemplate,
+  TransactionTemplateKind,
+  TransactionTemplateStore,
+  TemplateParamValue,
+} from "./templates";
 // ─── Asset constants and factories ───────────────────────────────────────────
 export const USDC_MAINNET_ISSUER =
   "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -179,4 +217,53 @@ export function usdtAsset(issuer?: string): Asset {
 
 export function eurcAsset(issuer?: string): Asset {
   return new Asset("EURC", issuer || EURC_MAINNET_ISSUER);
+}
+
+// ─── Cross-network fee comparison ─────────────────────────────────────────────
+
+import { estimateFee } from "./estimateFee";
+import type { FeeEstimate, FeeEstimateInput } from "./estimateFee";
+import type { SorokitResult } from "../shared/response";
+
+export interface NetworkFeeResult {
+  network: string;
+  estimate: SorokitResult<FeeEstimate>;
+}
+
+/**
+ * Compare estimated fees for the same transaction across multiple networks.
+ *
+ * Simulates the transaction on each network concurrently and returns the fee
+ * estimate (or error) for each one, so callers can see the cost difference
+ * between e.g. mainnet and testnet before submitting.
+ *
+ * @param transaction - The transaction to estimate fees for (XDR or payment description).
+ * @param networks    - Array of resolved network configs to compare against.
+ * @returns An array of `{ network, estimate }` entries in the same order as `networks`.
+ *
+ * @example
+ * const results = await compareFeeAcrossNetworks(
+ *   { kind: "xdr", transactionXdr: myXdr },
+ *   [mainnetConfig, testnetConfig],
+ * );
+ * for (const { network, estimate } of results) {
+ *   if (estimate.status === "ok") console.log(network, estimate.data.fee);
+ * }
+ */
+export async function compareFeeAcrossNetworks(
+  transaction: FeeEstimateInput,
+  networks: Array<{ network: string; horizonUrl: string; rpcUrl: string; networkPassphrase: string }>,
+): Promise<NetworkFeeResult[]> {
+  const results = await Promise.all(
+    networks.map(async (networkConfig) => {
+      const estimate = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        transaction,
+      );
+      return { network: networkConfig.network, estimate };
+    }),
+  );
+  return results;
 }
