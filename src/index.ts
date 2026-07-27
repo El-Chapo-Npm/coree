@@ -153,6 +153,7 @@ export { buildAccountMerge } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
 export {
   exportTransactionHistory,
+  queryTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
 } from "./transaction";
@@ -161,6 +162,12 @@ export type {
   ExportedTransaction,
   ExportTransactionHistoryOptions,
 } from "./transaction";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./transaction/queryTransactionHistory";
 export type {
   AccountCreateParams,
   AtomicSwapParams,
