@@ -1594,6 +1594,32 @@ describe.skip("soroban contract ABI validation", () => {
 
       expect(mockSimulateTransaction).toHaveBeenCalledOnce();
     });
+
+    it("preserves the original Horizon error as cause when source account load fails (#252)", async () => {
+      const horizonError = new Error("Account not found (404)");
+      (horizonError as any).response = { status: 404, data: { detail: "not found" } };
+      mockLoadAccount.mockRejectedValueOnce(horizonError);
+
+      const result = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: contractId(),
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
+        expect(result.error.message).toContain("Failed to read contract");
+        // The cause should be the original Horizon error, not a wrapped new Error
+        expect(result.error.cause).toBe(horizonError);
+      }
+    });
   });
 
   describe("simulateTransaction caching", () => {

@@ -42,10 +42,15 @@ export async function getTransactionStatus(
     const server = createHorizonServer(horizonUrl);
     const tx = await server.transactions().transaction(hash).call();
 
+    // Horizon reports ledger_attr as 0 (or omits it) for a transaction that has
+    // been submitted but not yet included in a ledger — treat that as "pending"
+    // rather than surfacing a meaningless ledger number.
+    const isPending = !tx.ledger_attr;
+
     const result: TransactionResult = {
       hash: tx.hash,
-      status: tx.successful ? "success" : "failed",
-      ledger: tx.ledger_attr,
+      status: isPending ? "pending" : tx.successful ? "success" : "failed",
+      ledger: isPending ? undefined : tx.ledger_attr,
       createdAt: tx.created_at,
       fee: String(tx.fee_charged),
       envelopeXdr: tx.envelope_xdr,

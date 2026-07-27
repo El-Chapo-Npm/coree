@@ -69,16 +69,19 @@ export function getAccount(
           };
         }
 
+        const liquidityPoolId = (b as { liquidity_pool_id?: string }).liquidity_pool_id;
         return {
           assetType: "liquidity_pool_shares" as const,
           // Use the pool ID as the assetCode so callers can distinguish
           // between different liquidity pool positions. Fall back to "LP"
           // only if the field is absent (should not happen with Horizon).
-          assetCode: (b as { liquidity_pool_id?: string }).liquidity_pool_id ?? "LP",
+          assetCode: liquidityPoolId ?? "LP",
           assetIssuer: null,
           balance: b.balance,
           balanceFloat: pf(b.balance),
           liquidityPoolId: (b as { liquidity_pool_id?: string }).liquidity_pool_id,
+          balanceFloat: parseFloat(b.balance),
+          ...(liquidityPoolId !== undefined ? { liquidityPoolId } : {}),
         };
 
       });

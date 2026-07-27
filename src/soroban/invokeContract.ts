@@ -71,6 +71,17 @@ export async function invokeContract(
       method: params.method,
     });
     signedXdr = await signFn(prepared.data.transactionXdr);
+    if (typeof signedXdr !== "string" || signedXdr.trim().length === 0) {
+      const message = "signFn returned an empty or invalid XDR string.";
+      logger?.warn("soroban.invoke.sign", {
+        operation: "soroban.invoke.sign",
+        status: "error",
+        contractId: params.contractId,
+        method: params.method,
+        errorMessage: message,
+      });
+      return err(SorokitErrorCode.WALLET_SIGN_FAILED, message);
+    }
     logger?.info("soroban.invoke.sign", {
       operation: "soroban.invoke.sign",
       status: "ok",

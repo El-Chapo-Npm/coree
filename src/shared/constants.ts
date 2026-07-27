@@ -29,3 +29,7 @@ export const DEFAULT_FEE_CACHE_TTL_MS = 300_000;
 
 /** Default cache TTL for transaction lookups in milliseconds (5 minutes) */
 export const DEFAULT_TX_CACHE_TTL_MS = DEFAULT_FEE_CACHE_TTL_MS;
+
+/** Current SDK version from package.json */
+export const SDK_VERSION = "0.1.0";
+

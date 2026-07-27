@@ -80,6 +80,7 @@ const {
   mockIsSimulationSuccess: vi.fn(),
   mockSubmitTransaction: vi.fn(),
   mockTransactionCall: vi.fn(),
+  mockCursorCall: vi.fn(),
 }));
 
 const {
@@ -166,7 +167,10 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
             forAccount: vi.fn(() => builder),
             limit: vi.fn(() => builder),
             order: vi.fn(() => builder),
-            cursor: vi.fn(() => builder),
+            cursor: vi.fn((c: string) => {
+              mockCursorCall(c);
+              return builder;
+            }),
             call: mockTransactionsCall,
             transaction: vi.fn().mockReturnValue({
               call: mockTransactionCall,
@@ -573,6 +577,41 @@ describe("transaction streaming filters", () => {
       expect(transactionHashes(value.data.transactions)).toEqual(["tx_4"]);
       expect(value.data.nextCursor).toBe("cursor_4");
     }
+  });
+
+  it("updates cursor on subsequent poll when config.cursor is provided with maxPolls: 2", async () => {
+    mockCursorCall.mockClear();
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: [
+          makeHorizonRecord(TRANSACTION_FIXTURES[0]!, "cursor_page_1"),
+        ],
+      })
+      .mockResolvedValueOnce({
+        records: [
+          makeHorizonRecord(TRANSACTION_FIXTURES[1]!, "cursor_page_2"),
+        ],
+      });
+
+    const stream = streamTransactions(
+      networkConfig.horizonUrl,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        cursor: "initial_cursor",
+        maxPolls: 2,
+        intervalMs: 10,
+      },
+    );
+
+    const pages = [];
+    for await (const page of stream) {
+      pages.push(page);
+    }
+
+    expect(pages).toHaveLength(2);
+    expect(mockCursorCall).toHaveBeenCalledTimes(2);
+    expect(mockCursorCall).toHaveBeenNthCalledWith(1, "initial_cursor");
+    expect(mockCursorCall).toHaveBeenNthCalledWith(2, "cursor_page_1");
   });
 });
 
@@ -1018,6 +1057,49 @@ describe("estimateFee — caching", () => {
       expect((transactionBuilderInstances[0].memo as any)?.value).toBe("hello");
     });
 
+    it("skips memo attachment when memo is an empty string (#292)", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect(transactionBuilderInstances[0].memo).toBeUndefined();
+      expect(mockAddMemo).not.toHaveBeenCalled();
+    });
+
+    it("fails payment build with TX_BUILD_FAILED when text memo exceeds the 28-byte Stellar limit (#292)", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "a".repeat(29),
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("Invalid memo for type text");
+      }
+      // The build never reaches TransactionBuilder — memo validation fails first.
+      expect(transactionBuilderInstances).toHaveLength(0);
+    });
+
     it("fails payment transaction with invalid hash memo", async () => {
       const result = await buildPaymentTransaction(
         networkConfig.horizonUrl,
@@ -1448,6 +1530,52 @@ describe("transaction caching", () => {
 
       expect(result.status).toBe("ok");
       expect(mockTransactionCall).toHaveBeenCalledOnce();
+    });
+
+    it("returns pending status with no ledger when ledger_attr is 0", async () => {
+      mockTransactionCall.mockResolvedValue({
+        hash: "test_hash",
+        successful: false,
+        ledger_attr: 0,
+        created_at: "2024-01-01",
+        fee_charged: "100",
+        envelope_xdr: "envelope_xdr",
+        result_xdr: "result_xdr",
+      });
+
+      const result = await getTransactionStatus(
+        networkConfig.horizonUrl,
+        "test_hash",
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.status).toBe("pending");
+        expect(result.data.ledger).toBeUndefined();
+      }
+    });
+
+    it("returns pending status with no ledger when ledger_attr is undefined", async () => {
+      mockTransactionCall.mockResolvedValue({
+        hash: "test_hash",
+        successful: false,
+        ledger_attr: undefined,
+        created_at: "2024-01-01",
+        fee_charged: "100",
+        envelope_xdr: "envelope_xdr",
+        result_xdr: "result_xdr",
+      });
+
+      const result = await getTransactionStatus(
+        networkConfig.horizonUrl,
+        "test_hash",
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.status).toBe("pending");
+        expect(result.data.ledger).toBeUndefined();
+      }
     });
   });
 });
@@ -2692,6 +2820,169 @@ describe("estimateFee — fee tiers", () => {
     // The tiers should have been stored under FEE_TIERS_CACHE_KEY
     const cachedKey = cache.setCalls.find((c) => c.key === FEE_TIERS_CACHE_KEY);
     expect(cachedKey).toBeDefined();
+  });
+});
+
+describe("estimateFee — input modes and fallback paths (#251)", () => {
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mocks.simulateTransaction.mockReset();
+    mocks.fromXDR.mockReset();
+    mocks.isSimulationSuccess.mockReset();
+    mocks.isSimulationError.mockReset();
+    mockTransactionsCall.mockReset();
+    transactionBuilderInstances.length = 0;
+
+    mockLoadAccount.mockResolvedValue({
+      sequence: "1",
+      sequenceNumber: () => "1",
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    });
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockRejectedValue(new Error("no history"));
+  });
+
+  it('kind: "xdr" — success returns correct fee, feeFloat, feeXlm, simulated: true', async () => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("500");
+      expect(result.data.feeFloat).toBe(500);
+      expect(result.data.feeXlm).toBe("0.0000500");
+      expect(result.data.simulated).toBe(true);
+      expect(result.data.baseFee).toBe("100");
+    }
+  });
+
+  it('kind: "payment" — success builds a sample tx, simulates it, returns correct fields', async () => {
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      {
+        kind: "payment",
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        destination: "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R",
+        amount: "10",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("500");
+      expect(result.data.feeFloat).toBe(500);
+      expect(result.data.feeXlm).toBe("0.0000500");
+      expect(result.data.simulated).toBe(true);
+      expect(result.data.baseFee).toBe("100");
+    }
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+    expect(mocks.simulateTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("simulation error fallback — returns baseFee, simulated: false", async () => {
+    mocks.isSimulationSuccess.mockReturnValue(false);
+    mocks.isSimulationError.mockReturnValue(true);
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("100");
+      expect(result.data.feeFloat).toBe(100);
+      expect(result.data.feeXlm).toBe("0.0000100");
+      expect(result.data.simulated).toBe(false);
+      expect(result.data.baseFee).toBe("100");
+    }
+  });
+
+  it("unexpected result fallback — returns baseFee, simulated: false", async () => {
+    mocks.isSimulationSuccess.mockReturnValue(false);
+    mocks.isSimulationError.mockReturnValue(false);
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("100");
+      expect(result.data.feeFloat).toBe(100);
+      expect(result.data.feeXlm).toBe("0.0000100");
+      expect(result.data.simulated).toBe(false);
+      expect(result.data.baseFee).toBe("100");
+    }
+  });
+
+  it("non-native asset with no issuer returns TX_BUILD_FAILED", async () => {
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      {
+        kind: "payment",
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        destination: "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R",
+        amount: "10",
+        assetCode: "USDC",
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Asset issuer is required");
+    }
+    // loadAccount is called before the issuer check, but simulation should never be reached
+    expect(mocks.simulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("feeXlm math — feeStroops / 10_000_000 with .toFixed(7)", async () => {
+    const cases = [
+      { stroops: "100", expected: "0.0000100" },
+      { stroops: "500", expected: "0.0000500" },
+      { stroops: "1000", expected: "0.0001000" },
+      { stroops: "10000", expected: "0.0010000" },
+      { stroops: "100000", expected: "0.0100000" },
+      { stroops: "1000000", expected: "0.1000000" },
+      { stroops: "10000000", expected: "1.0000000" },
+      { stroops: "1234567", expected: "0.1234567" },
+    ];
+
+    for (const c of cases) {
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: c.stroops });
+
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.feeXlm).toBe(c.expected);
+        expect(result.data.fee).toBe(c.stroops);
+      }
+    }
   });
 });
 

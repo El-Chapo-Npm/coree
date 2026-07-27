@@ -103,7 +103,7 @@ export async function getAccountActivitySummary(
       }
 
       // Check payment operations
-      if (op.type === "payment" || op.type_s === "payment") {
+      if (op.type === "payment") {
         const payOp = op as any;
         const amount = parseFloat(payOp.amount || "0");
         const assetCode = payOp.asset_code || (payOp.asset_type === "native" ? "XLM" : "UNKNOWN");

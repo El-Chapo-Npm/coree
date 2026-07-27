@@ -1,8 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
 import { SorokitErrorCode, err, ok } from "../shared/response";
 import { WalletType } from "../wallet/types";
 import type { WalletAdapter } from "../wallet/types";
+
+const { mockEstimateFee } = vi.hoisted(() => ({
+  mockEstimateFee: vi.fn(),
+}));
+
+vi.mock("../transaction/estimateFee", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../transaction/estimateFee")>();
+  return {
+    ...actual,
+    estimateFee: mockEstimateFee,
+  };
+});
+
+const { mockStreamTransactions } = vi.hoisted(() => ({
+  mockStreamTransactions: vi.fn(),
+}));
+
+vi.mock("../transaction/streamTransactions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../transaction/streamTransactions")>();
+  return {
+    ...actual,
+    streamTransactions: mockStreamTransactions,
+  };
+});
 
 describe("createSorokitClient", () => {
   it("creates a client for testnet", () => {
@@ -22,6 +48,8 @@ describe("createSorokitClient", () => {
       expect(typeof client.account.getBalances).toBe("function");
       expect(typeof client.account.stream).toBe("function"); // #85
       expect(typeof client.account.formatAddress).toBe("function");
+      expect(typeof client.account.isValidPublicKey).toBe("function"); // #293
+      expect(typeof client.account.isValidContractId).toBe("function"); // #293
       // transaction namespace
       expect(typeof client.transaction.buildPayment).toBe("function");
       expect(typeof client.transaction.buildCreateAccount).toBe("function");
@@ -94,11 +122,36 @@ describe("createSorokitClient", () => {
     }
   });
 
+  it("exposes version property matching package version", () => {
+    const result = createSorokitClient({ network: "testnet" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.version).toBe("0.1.0");
+    }
+  });
+
   it("network.getConfig() returns the resolved config", () => {
     const result = createSorokitClient({ network: "testnet" });
     if (result.status === "ok") {
       const config = result.data.network.getConfig();
       expect(config).toEqual(result.data.networkConfig);
+    }
+  });
+
+  it("network.getId() returns the network identifier string", () => {
+    const testnetClient = createSorokitClient({ network: "testnet" });
+    if (testnetClient.status === "ok") {
+      expect(testnetClient.data.network.getId()).toBe("testnet");
+    }
+
+    const mainnetClient = createSorokitClient({ network: "mainnet" });
+    if (mainnetClient.status === "ok") {
+      expect(mainnetClient.data.network.getId()).toBe("mainnet");
+    }
+
+    const futurenetClient = createSorokitClient({ network: "futurenet" });
+    if (futurenetClient.status === "ok") {
+      expect(futurenetClient.data.network.getId()).toBe("futurenet");
     }
   });
 
@@ -126,6 +179,24 @@ describe("createSorokitClient", () => {
     }
   });
 
+  it("account.isValidPublicKey validates well-formed and malformed public keys (#293)", () => {
+    const result = createSorokitClient({ network: "testnet" });
+    if (result.status === "ok") {
+      const validKey = "GHOV4DKRY7GNU3CJQX6FMT2BIPW5ELSZAHOV4DKRY7GNU3CJQX6FMT2B";
+      expect(result.data.account.isValidPublicKey(validKey)).toBe(true);
+      expect(result.data.account.isValidPublicKey("not-a-key")).toBe(false);
+    }
+  });
+
+  it("account.isValidContractId validates well-formed and malformed contract ids (#293)", () => {
+    const result = createSorokitClient({ network: "testnet" });
+    if (result.status === "ok") {
+      const validContractId = "CHOV4DKRY7GNU3CJQX6FMT2BIPW5ELSZAHOV4DKRY7GNU3CJQX6FMT2B";
+      expect(result.data.account.isValidContractId(validContractId)).toBe(true);
+      expect(result.data.account.isValidContractId("not-a-contract")).toBe(false);
+    }
+  });
+
   it("soroban exposes the full prepare → execute pipeline", () => {
     const result = createSorokitClient({ network: "testnet" });
     if (result.status === "ok") {
@@ -143,6 +214,59 @@ describe("createSorokitClient", () => {
       expect(typeof stream[Symbol.asyncIterator]).toBe("function");
       // Consume one iteration to verify it's a working generator
       await stream.next();
+    }
+  });
+
+  it("transaction.estimateFee delegates to estimateFee() with rpcUrl, horizonUrl, and networkConfig in order (#294)", async () => {
+    mockEstimateFee.mockReset();
+    mockEstimateFee.mockResolvedValue(
+      ok({
+        fee: "100",
+        feeFloat: 100,
+        feeXlm: "0.0000100",
+        baseFee: "100",
+        simulated: false,
+      }),
+    );
+
+    const result = createSorokitClient({ network: "testnet" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const input = { kind: "xdr" as const, transactionXdr: "AAAA" };
+      const res = await result.data.transaction.estimateFee(input);
+
+      expect(res.status).toBe("ok");
+      expect(mockEstimateFee).toHaveBeenCalledOnce();
+      const call = mockEstimateFee.mock.calls[0];
+      // Wiring order matters — a swap here would silently misconfigure the estimate.
+      expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+      expect(call[1]).toBe(result.data.networkConfig.horizonUrl);
+      expect(call[2]).toBe(result.data.networkConfig);
+      expect(call[3]).toBe(input);
+    }
+  });
+
+  it("transaction.stream delegates to streamTransactions() with horizonUrl and publicKey (#294)", async () => {
+    mockStreamTransactions.mockReset();
+    mockStreamTransactions.mockImplementation(async function* () {
+      yield ok({ transactions: [], nextCursor: null });
+    });
+
+    const result = createSorokitClient({ network: "testnet" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const streamConfig = { maxPolls: 1 };
+      const stream = result.data.transaction.stream("GTEST...", streamConfig);
+      expect(typeof stream[Symbol.asyncIterator]).toBe("function");
+
+      const { value } = await stream.next();
+      expect(value?.status).toBe("ok");
+
+      expect(mockStreamTransactions).toHaveBeenCalledOnce();
+      const call = mockStreamTransactions.mock.calls[0];
+      expect(call[0]).toBe(result.data.networkConfig.horizonUrl);
+      expect(call[1]).toBe("GTEST...");
+      expect(call[2]).toBe(streamConfig);
     }
   });
 

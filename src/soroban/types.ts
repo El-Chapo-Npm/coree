@@ -3,6 +3,7 @@
  */
 import type { xdr } from "@stellar/stellar-sdk";
 import type { ContractStateTracker } from "./contractStateTracker";
+export type { ContractStateTracker } from "./contractStateTracker";
 
 export interface ContractMethodInput {
   name: string;
