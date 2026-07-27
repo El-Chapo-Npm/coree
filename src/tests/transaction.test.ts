@@ -2751,7 +2751,8 @@ describe("buildBulkTrustlines", () => {
   const networkConfig: ResolvedNetworkConfig = {
     horizonUrl: "https://horizon-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
-    networkType: "testnet",
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
   };
   const sourcePublicKey =
     "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
@@ -2770,6 +2771,29 @@ describe("buildBulkTrustlines", () => {
   });
 
   it("builds multiple changeTrust operations", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)],
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(typeof result.data).toBe("string");
+      expect(result.data.length).toBeGreaterThan(0);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it("omits tiers when includeTiers is not set", async () => {
     mockLoadAccount.mockResolvedValueOnce({
       id: sourcePublicKey,
       sequence: "12345",
@@ -2976,7 +3000,17 @@ describe("validateDestination", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.formatValid).toBe(false);
     expect(res.data.error?.code).toBe("INVALID_FORMAT");
+
   });
+});
+
+describe("Asset Factories", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
+  it("creates a native asset", () => {
+    const asset = nativeAsset();
+    expect(asset.isNative()).toBe(true);
+  });
+
 
   it("returns isSource true when destination matches source", async () => {
     const { validateDestination } = await import("../transaction/validateDestination");
@@ -3084,6 +3118,104 @@ describe("Asset Factories", () => {
     const customAsset = eurcAsset(customIssuer);
     expect(customAsset.getCode()).toBe("EURC");
     expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+});
+
+import { compareFeeAcrossNetworks } from "../transaction/index";
+import type { ResolvedNetworkConfig as NetworkConfig } from "../shared/types";
+
+describe("compareFeeAcrossNetworks", () => {
+  const mainnetConfig: NetworkConfig = {
+    network: "mainnet",
+    horizonUrl: "https://horizon.stellar.org",
+    rpcUrl: "https://mainnet.stellar.validationcloud.io/v1/soroban/rpc",
+    networkPassphrase: "Public Global Stellar Network ; September 2015",
+  };
+
+  const testnetConfig: NetworkConfig = {
+    network: "testnet",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+  };
+
+  beforeEach(() => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockResolvedValue({ records: [] });
+  });
+
+  it("returns a result entry for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.network).toBe("mainnet");
+    expect(results[1]?.network).toBe("testnet");
+  });
+
+  it("returns fee estimates for each network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [mainnetConfig, testnetConfig],
+    );
+
+    for (const { estimate } of results) {
+      expect(estimate.status).toBe("ok");
+      if (estimate.status === "ok") {
+        expect(typeof estimate.data.fee).toBe("string");
+        expect(typeof estimate.data.feeFloat).toBe("number");
+        expect(typeof estimate.data.feeXlm).toBe("string");
+      }
+    }
+  });
+
+  it("returns fees in the same order as the input networks array", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[1]?.network).toBe("mainnet");
+  });
+
+  it("returns an error result for a network when simulation fails", async () => {
+    mocks.simulateTransaction
+      .mockResolvedValueOnce({ minResourceFee: "500" })
+      .mockRejectedValueOnce(new Error("RPC unreachable"));
+
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig, mainnetConfig],
+    );
+
+    expect(results[0]?.estimate.status).toBe("ok");
+    expect(results[1]?.estimate.status).toBe("error");
+  });
+
+  it("handles a single network", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [testnetConfig],
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.network).toBe("testnet");
+    expect(results[0]?.estimate.status).toBe("ok");
+  });
+
+  it("returns an empty array when no networks are provided", async () => {
+    const results = await compareFeeAcrossNetworks(
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      [],
+    );
+
+    expect(results).toEqual([]);
   });
 });
 
