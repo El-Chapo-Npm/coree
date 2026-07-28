@@ -135,6 +135,20 @@ describe("account", () => {
   });
 
   describe("streamAccount", () => {
+    it("emits a warning when intervalMs is clamped below minimum", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const stream = streamAccount("https://horizon.test", "G...", {
+        intervalMs: 100,
+        maxPolls: 1,
+      });
+
+      await stream.next();
+
+      expect(warnSpy).toHaveBeenCalledWith("intervalMs clamped from 100ms to 1000ms");
+      warnSpy.mockRestore();
+    });
+
     it("increases interval after unchanged polls and decreases after activity", async () => {
       accountMockState.results = [
         createAccount("1"),

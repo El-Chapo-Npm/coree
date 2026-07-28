@@ -579,6 +579,28 @@ describe("transaction streaming filters", () => {
     }
   });
 
+  it("emits a warning when intervalMs is clamped below minimum", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: [],
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const stream = streamTransactions(
+      networkConfig.horizonUrl,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        intervalMs: 100,
+        maxPolls: 1,
+      },
+    );
+
+    await stream.next();
+
+    expect(warnSpy).toHaveBeenCalledWith("intervalMs clamped from 100ms to 1000ms");
+    warnSpy.mockRestore();
+  });
+
   it("updates cursor on subsequent poll when config.cursor is provided with maxPolls: 2", async () => {
     mockCursorCall.mockClear();
     mockTransactionsCall
