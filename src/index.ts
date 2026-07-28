@@ -132,8 +132,19 @@ export type {
   FeeEstimateInput,
   FeeEstimateOptions,
   FeeTiers,
+  CongestionFeeEstimate,
 } from "./transaction/estimateFee";
-export { calculateFeeTiers } from "./transaction/estimateFee";
+export { calculateFeeTiers, fetchCongestionFeeEstimate } from "./transaction/estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+} from "./transaction/pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   buildPathPayment,
@@ -236,7 +247,14 @@ export type {
   ContractDataValidationResult,
 } from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
-export { getContractMethods } from "./soroban/contractMetadata";
+export { getContractMethods, parseContractSchema, validateContractArgs } from "./soroban/contractMetadata";
+export type {
+  ContractSchema,
+  ContractMethodSchema,
+  ContractMethodParam,
+} from "./soroban/contractMetadata";
+export { invokeContract } from "./soroban/invokeContract";
+export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
