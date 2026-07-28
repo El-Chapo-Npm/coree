@@ -415,6 +415,187 @@ describe("account", () => {
     });
   });
 
+  describe("createBalanceAlert", () => {
+    const pk = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+    function bal(assetCode: string, balance: string, assetIssuer: string | null = null) {
+      return {
+        assetType: assetIssuer ? ("credit_alphanum4" as const) : ("native" as const),
+        assetCode,
+        assetIssuer,
+        balance,
+        balanceFloat: parseFloat(balance),
+      };
+    }
+
+    it("fires callback when balance crosses a threshold", async () => {
+      const { createBalanceAlert } = await import("../account/createBalanceAlert");
+
+      const base: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+
+      accountMockState.results = [base];
+      accountMockState.index = 0;
+
+      const received: string[] = [];
+      const ac = new AbortController();
+
+      createBalanceAlert(
+        "http://horizon",
+        pk,
+        [{ assetCode: "XLM", condition: "below", threshold: 150 }],
+        (alert) => received.push(alert.newBalance),
+        { signal: ac.signal },
+      );
+
+      // Let the async stream process at least one poll
+      await new Promise((r) => setTimeout(r, 50));
+      ac.abort();
+
+      expect(received.length).toBeGreaterThan(0);
+      expect(received[0]).toBe("100");
+    }, 10_000);
+
+    it("unsubscribe function stops monitoring", async () => {
+      const { createBalanceAlert } = await import("../account/createBalanceAlert");
+
+      const base: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+
+      accountMockState.results = [base, base, base];
+      accountMockState.index = 0;
+
+      const received: string[] = [];
+      const unsubscribe = createBalanceAlert(
+        "http://horizon",
+        pk,
+        [{ assetCode: "XLM", condition: "below", threshold: 150 }],
+        (alert) => received.push(alert.newBalance),
+      );
+
+      // Should fire on the first poll
+      await new Promise((r) => setTimeout(r, 50));
+      expect(received.length).toBeGreaterThan(0);
+
+      const countAfterFirstPoll = received.length;
+      unsubscribe();
+
+      // After unsubscribe, no more alerts should arrive
+      await new Promise((r) => setTimeout(r, 50));
+      expect(received.length).toBe(countAfterFirstPoll);
+    }, 10_000);
+
+    it("does not fire when no threshold is crossed", async () => {
+      const { createBalanceAlert } = await import("../account/createBalanceAlert");
+
+      const base: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+
+      accountMockState.results = [base];
+      accountMockState.index = 0;
+
+      const received: string[] = [];
+      const ac = new AbortController();
+
+      createBalanceAlert(
+        "http://horizon",
+        pk,
+        [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+        (alert) => received.push(alert.newBalance),
+        { signal: ac.signal },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      ac.abort();
+
+      // Balance of 100 is above threshold of 50, so no alert
+      expect(received).toHaveLength(0);
+    }, 10_000);
+
+    it("respects external AbortSignal to stop monitoring", async () => {
+      const { createBalanceAlert } = await import("../account/createBalanceAlert");
+
+      const base: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+
+      accountMockState.results = [base, base, base];
+      accountMockState.index = 0;
+
+      const received: string[] = [];
+      const ac = new AbortController();
+
+      createBalanceAlert(
+        "http://horizon",
+        pk,
+        [{ assetCode: "XLM", condition: "below", threshold: 150 }],
+        (alert) => received.push(alert.newBalance),
+        { signal: ac.signal },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+      expect(received.length).toBeGreaterThan(0);
+
+      const countBefore = received.length;
+      ac.abort();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // No more alerts after external abort
+      expect(received.length).toBe(countBefore);
+    }, 10_000);
+
+    it("handles empty rules without error", async () => {
+      const { createBalanceAlert } = await import("../account/createBalanceAlert");
+
+      const base: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+
+      accountMockState.results = [base];
+      accountMockState.index = 0;
+
+      const received: string[] = [];
+      const ac = new AbortController();
+
+      expect(() => {
+        createBalanceAlert(
+          "http://horizon",
+          pk,
+          [],
+          (alert) => received.push(alert.newBalance),
+          { signal: ac.signal },
+        );
+      }).not.toThrow();
+
+      await new Promise((r) => setTimeout(r, 50));
+      ac.abort();
+      expect(received).toHaveLength(0);
+    }, 10_000);
+  });
+
   describe("getAssetBalances — issuer whitelisting", () => {
     beforeEach(() => {
       vi.clearAllMocks();
