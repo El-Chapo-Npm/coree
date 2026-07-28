@@ -45,7 +45,12 @@ import { executeContract, validateSorobanPollConfig } from "../soroban/executeCo
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { createContractStateTracker } from "../soroban/contractStateTracker";
-import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
+import {
+  createLogger,
+  createTracedLogger,
+  withLogging,
+  sanitizeLogMeta,
+} from "../shared/logger";
 import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
 import type { TraceContext } from "../shared/tracing";
@@ -54,6 +59,7 @@ import {
   generateTraceId,
   isValidPublicKey,
   isValidContractId,
+  TokenBucketRateLimiter,
 } from "../shared/utils";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -557,13 +563,16 @@ export function createSorokitClient(
       ? new TokenBucketRateLimiter(config.maxTxPerSecond)
       : null;
 
-  logger.info("client.create", {
-    operation: "client.create",
-    status: "ok",
-    network: config.network,
-    horizonUrl,
-    rpcUrl,
-  });
+  logger.info(
+    "client.create",
+    sanitizeLogMeta({
+      operation: "client.create",
+      status: "ok",
+      network: config.network,
+      horizonUrl,
+      rpcUrl,
+    }),
+  );
 
   // Client creation checks cache for recovered state
   if (cache) {

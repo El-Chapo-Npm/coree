@@ -163,6 +163,7 @@ describe("createSorokitClient", () => {
       });
       expect(res.status).toBe("ok");
     });
+  });
   it("exposes version property matching package version", () => {
     const result = createSorokitClient({ network: "testnet" });
     expect(result.status).toBe("ok");

@@ -11,6 +11,11 @@ export interface SorokitLogger {
   error(message: string, meta?: StructuredLogMeta): void;
 }
 
+export interface TracedLogger extends SorokitLogger {
+  readonly traceId?: string;
+  readonly spanId?: string;
+}
+
 export interface LoggerOptions {
   logLevel?: LogLevel;
   debug?: boolean;
@@ -42,7 +47,7 @@ export function sanitizeUrlForLogging(url: string): string {
   }
 }
 
-function sanitizeLogMeta(meta?: StructuredLogMeta): StructuredLogMeta | undefined {
+export function sanitizeLogMeta(meta?: StructuredLogMeta): StructuredLogMeta | undefined {
   if (!meta) return undefined;
 
   const sanitized: StructuredLogMeta = { ...meta };
@@ -104,14 +109,18 @@ export function createLogger(options?: LoggerOptions): SorokitLogger {
 /** Add trace identifiers to all entries emitted by a logger. */
 export function createTracedLogger(
   logger: SorokitLogger,
-  traceContext: { traceId?: string; spanId?: string } | null | undefined,
-): SorokitLogger {
+  traceContext: string | { traceId?: string; spanId?: string } | null | undefined,
+): TracedLogger {
+  const normalizedContext =
+    typeof traceContext === "string" ? { traceId: traceContext } : traceContext;
   const traceMeta: StructuredLogMeta = {};
-  if (traceContext?.traceId !== undefined) traceMeta.traceId = traceContext.traceId;
-  if (traceContext?.spanId !== undefined) traceMeta.spanId = traceContext.spanId;
+  if (normalizedContext?.traceId !== undefined) traceMeta.traceId = normalizedContext.traceId;
+  if (normalizedContext?.spanId !== undefined) traceMeta.spanId = normalizedContext.spanId;
 
   const withTrace = (meta?: StructuredLogMeta): StructuredLogMeta => ({ ...traceMeta, ...meta });
   return {
+    ...(normalizedContext?.traceId !== undefined ? { traceId: normalizedContext.traceId } : {}),
+    ...(normalizedContext?.spanId !== undefined ? { spanId: normalizedContext.spanId } : {}),
     debug: (message, meta) => logger.debug(message, withTrace(meta)),
     info: (message, meta) => logger.info(message, withTrace(meta)),
     warn: (message, meta) => logger.warn(message, withTrace(meta)),
@@ -121,7 +130,7 @@ export function createTracedLogger(
 
 /** Log the start and completion of an asynchronous operation. */
 export async function withLogging<T>(
-  logger: SorokitLogger,
+  logger: TracedLogger,
   operation: string,
   meta: StructuredLogMeta,
   fn: () => Promise<T>,
@@ -133,11 +142,31 @@ export async function withLogging<T>(
       typeof result === "object" && result !== null && "status" in result
         ? (result as { status?: unknown }).status
         : undefined;
-    logger.debug(operation, {
+    const statusMeta = {
       ...meta,
       operation,
       status: resultStatus === "error" ? "error" : "ok",
-    });
+    };
+    if (resultStatus === "error" && typeof result === "object" && result !== null && "error" in result) {
+      const errorResult = result as unknown as {
+        status: "error";
+        data: null;
+        error: { code: string; message: string; traceId?: string };
+      };
+      logger.error(operation, {
+        ...statusMeta,
+        errorCode: errorResult.error.code,
+        errorMessage: errorResult.error.message,
+      });
+      if (logger.traceId !== undefined && errorResult.error.traceId === undefined) {
+        return {
+          ...errorResult,
+          error: { ...errorResult.error, traceId: logger.traceId },
+        } as T;
+      }
+      return result;
+    }
+    logger.debug(operation, statusMeta);
     return result;
   } catch (cause) {
     logger.error(operation, {
