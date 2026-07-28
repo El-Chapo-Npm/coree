@@ -128,6 +128,12 @@ export interface SorokitClientConfig {
    * @deprecated Prefer `logLevel: "debug"`
    */
   debug?: boolean;
+  /**
+   * Prefix for built-in console log lines. Defaults to `"[sorokit]"`.
+   * Use distinct values (e.g. `"[sorokit:testnet]"`) when running multiple clients.
+   * Ignored when a custom `logger` is provided.
+   */
+  logPrefix?: string;
   /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
   /**
@@ -534,6 +540,7 @@ export function createSorokitClient(
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
+      ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
 
