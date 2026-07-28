@@ -268,3 +268,8 @@ export async function compareFeeAcrossNetworks(
   );
   return results;
 }
+
+// NOTE: Transaction pre-flight simulation uses the Soroban RPC server
+// and therefore lives in src/soroban/simulateTransaction.ts.
+// It can be accessed via client.soroban.simulate().
+
