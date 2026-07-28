@@ -63,6 +63,15 @@ export type {
   NetworkSwitcherConfig,
 } from "./network";
 
+// ─── Circuit breaker (#186) ────────────────────────────────────────────────────
+export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./network";
+export type {
+  CircuitBreakerConfig,
+  CircuitBreakerMetrics,
+  CircuitState,
+  CircuitStateChangeEvent,
+} from "./network";
+
 // ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { createBalanceAlert } from "./account/createBalanceAlert";
@@ -257,6 +266,7 @@ export type {
 export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
@@ -285,7 +295,7 @@ export type {
 // ─── Response system ──────────────────────────────────────────────────────────
 export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
-export { createInMemoryCache } from "./shared/cache";
+export { createInMemoryCache, invalidateContractState } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
 export type { LogLevel, LoggerOptions, SorokitLogger } from "./shared/logger";
 export {

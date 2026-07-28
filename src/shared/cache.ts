@@ -48,6 +48,26 @@ export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
   };
 }
 
+/**
+ * Invalidate a cached contract read result by its cache key.
+ *
+ * Use this to manually bust a specific entry when you know the contract
+ * state has changed (e.g. after submitting a write transaction).
+ *
+ * Safe to call even if the cache or key does not exist — it is a no-op
+ * in that case.
+ *
+ * @example
+ * const cacheKey = createContractReadCacheKey(contractId, "get_price", args);
+ * invalidateContractState(cacheKey, cache);
+ */
+export function invalidateContractState(
+  cacheKey: string,
+  cache: SorokitCache,
+): void {
+  cache.invalidate(cacheKey);
+}
+
 export function wrapCache(userCache: SorokitCache): SorokitCache {
   return {
     get(key: string): unknown {
