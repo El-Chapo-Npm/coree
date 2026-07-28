@@ -308,6 +308,87 @@ describe("createSorokitClient", () => {
     }
   });
 
+  // ── URL validation ────────────────────────────────────────────────────
+
+  it("rejects empty horizonUrl override", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+    }
+  });
+
+  it("rejects invalid horizonUrl override (not-a-url)", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "not-a-url",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+    }
+  });
+
+  it("rejects empty rpcUrl override", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      rpcUrl: "",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+    }
+  });
+
+  it("rejects invalid rpcUrl override (not-a-url)", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      rpcUrl: "not-a-url",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+    }
+  });
+
+  it("accepts http:// horizonUrl", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      horizonUrl: "http://localhost:8000",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.networkConfig.horizonUrl).toBe("http://localhost:8000");
+    }
+  });
+
+  it("accepts https:// rpcUrl", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      rpcUrl: "https://my-rpc.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.networkConfig.rpcUrl).toBe("https://my-rpc.example.com");
+    }
+  });
+
+  it("accepts undefined horizonUrl (uses default)", () => {
+    const result = createSorokitClient({
+      network: "testnet",
+      horizonUrl: undefined,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.networkConfig.horizonUrl).toBe(
+        "https://horizon-testnet.stellar.org",
+      );
+    }
+  });
+
   it("account.get returns ACCOUNT_NOT_FOUND when Horizon returns 404", async () => {
     const clientRes = createSorokitClient({
       network: "testnet",
