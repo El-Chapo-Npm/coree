@@ -43,12 +43,12 @@ export type {
 } from "./wallet/types";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
-export { NETWORK_DEFAULTS } from "./network/config";
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth, NetworkSwitcher } from "./network";
+export { checkNetworkHealth, NetworkSwitcher, getNetwork, setNetwork } from "./network";
+export { checkNetworkHealth, NetworkSwitcher, NETWORK_DEFAULTS } from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -81,6 +81,10 @@ export type {
   BalanceAlertRule,
   SponsorshipResult,
 } from "./account/types";
+// Standalone account functions for use without a client instance
+export { getAccount } from "./account/getAccount";
+export { getBalances } from "./account/getBalances";
+export { getAssetBalances } from "./account/getAssetBalances";
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
@@ -204,6 +208,9 @@ export type {
   TransactionTemplateStore,
   TemplateParamValue,
 } from "./transaction";
+// Standalone transaction functions for use without a client instance
+export { submitTransaction } from "./transaction/submitTransaction";
+export { getTransactionStatus } from "./transaction/status";
 
 // ─── Soroban simulator (#210) ──────────────────────────────────────────────────
 export { SorobanSimulator } from "./soroban/simulator";
@@ -257,6 +264,7 @@ export type {
 } from "./soroban/types";
 
 // ─── Response system ──────────────────────────────────────────────────────────
+export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";

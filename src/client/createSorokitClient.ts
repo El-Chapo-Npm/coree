@@ -49,7 +49,12 @@ import { createLogger, createTracedLogger, withLogging } from "../shared/logger"
 import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
 import type { TraceContext } from "../shared/tracing";
-import { formatAddress, generateTraceId } from "../shared/utils";
+import {
+  formatAddress,
+  generateTraceId,
+  isValidPublicKey,
+  isValidContractId,
+} from "../shared/utils";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
@@ -59,7 +64,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
 import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
 import type { ErrorCodeTransformer } from "../shared/errors";
-import { TokenBucketRateLimiter } from "../shared/utils";
+import { SDK_VERSION } from "../shared/constants";
 import type { NetworkType } from "../network/config";
 import type {
   WalletAdapter,
@@ -144,6 +149,8 @@ export interface SorokitClientConfig {
 // ─── Client interface ─────────────────────────────────────────────────────────
 
 export interface SorokitClient {
+  /** SDK version string from package.json */
+  readonly version: string;
   /** Resolved network configuration for this client instance */
   readonly networkConfig: ResolvedNetworkConfig;
   /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
@@ -203,6 +210,16 @@ export interface SorokitClient {
      * Pure utility — returns string directly, cannot fail.
      */
     formatAddress(publicKey: string, chars?: number): string;
+    /**
+     * Check whether a string is a well-formed Stellar public key (G...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidPublicKey(key: string): boolean;
+    /**
+     * Check whether a string is a well-formed Stellar contract ID (C...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidContractId(id: string): boolean;
     /** Build operations to set a sponsor for an account */
     setSponsor(
       account: string,
@@ -329,6 +346,8 @@ export interface SorokitClient {
   readonly network: {
     /** Return the resolved network config for this client instance */
     getConfig(): ResolvedNetworkConfig;
+    /** Return the network type identifier string (e.g. "testnet", "mainnet", "futurenet") */
+    getId(): NetworkType;
   };
 }
 
@@ -555,6 +574,7 @@ export function createSorokitClient(
   }
 
   const client: SorokitClient = {
+    version: SDK_VERSION,
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
@@ -670,6 +690,8 @@ export function createSorokitClient(
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
+      isValidPublicKey: (key) => isValidPublicKey(key),
+      isValidContractId: (id) => isValidContractId(id),
       setSponsor: (account, sponsor) =>
         applyTx(setSponsor(account, sponsor)),
       removeSponsor: (account) =>
@@ -926,6 +948,7 @@ export function createSorokitClient(
 
     network: {
       getConfig: () => networkConfig,
+      getId: () => config.network,
     },
   };
 

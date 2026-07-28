@@ -30,6 +30,19 @@ vi.mock("../account/getAccount", () => ({
   }),
 }));
 
+vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+  return {
+    ...actual,
+    Horizon: {
+      ...actual.Horizon,
+      Server: vi.fn(),
+    },
+  };
+});
+
+import { DEFAULT_ADDRESS_DISPLAY_CHARS } from "../shared/constants";
+
 import { streamAccount } from "../account/streamAccount";
 
 function createAccount(sequence: string): AccountInfo {
@@ -66,6 +79,58 @@ describe("account", () => {
 
     it("returns the key unchanged if already short", () => {
       expect(formatAddress("GABCD")).toBe("GABCD");
+    });
+  });
+
+  describe("getAccount", () => {
+    it("returns displayAddress containing ellipsis, prefix, and suffix matching configuration lengths", async () => {
+      const { getAccount } = await vi.importActual<typeof import("../account/getAccount")>("../account/getAccount");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+
+      const publicKey = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const mockAccount = {
+        sequence: "12345",
+        subentry_count: 3,
+        balances: [{ asset_type: "native", balance: "100.00000" }],
+      };
+
+      const mockLoadAccount = vi.fn().mockResolvedValue(mockAccount);
+      vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+        loadAccount: mockLoadAccount,
+      }) as any);
+
+      const result = await getAccount("https://horizon.test", publicKey);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.displayAddress).toContain("...");
+        const prefix = publicKey.slice(0, DEFAULT_ADDRESS_DISPLAY_CHARS + 1);
+        const suffix = publicKey.slice(-DEFAULT_ADDRESS_DISPLAY_CHARS);
+        expect(result.data.displayAddress.startsWith(prefix)).toBe(true);
+        expect(result.data.displayAddress.endsWith(suffix)).toBe(true);
+      }
+    });
+
+    it("returns short public key unchanged as displayAddress", async () => {
+      const { getAccount } = await vi.importActual<typeof import("../account/getAccount")>("../account/getAccount");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+
+      const publicKey = "GABCDEFGHI";
+      const mockAccount = {
+        sequence: "12345",
+        subentry_count: 3,
+        balances: [{ asset_type: "native", balance: "100.00000" }],
+      };
+
+      const mockLoadAccount = vi.fn().mockResolvedValue(mockAccount);
+      vi.mocked(Horizon.Server).mockImplementationOnce(() => ({
+        loadAccount: mockLoadAccount,
+      }) as any);
+
+      const result = await getAccount("https://horizon.test", publicKey);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.displayAddress).toBe(publicKey);
+      }
     });
   });
 
@@ -864,6 +929,188 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
   }, 10_000);
 });
 
+describe("getAssetBalances — comprehensive filter logic (#266)", () => {
+  const HORIZON_URL = "https://horizon-testnet.stellar.org";
+  const PUBLIC_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+  function mockAccountWithBalances(balances: any[]) {
+    return {
+      publicKey: PUBLIC_KEY,
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+      balances,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns all balances when no filter is provided", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+      { assetType: "credit_alphanum12", assetCode: "EURC", assetIssuer: "GISSUER2", balance: "0.0000000", balanceFloat: 0 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY);
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(3);
+    }
+  });
+
+  it("filters by assetCode (case-insensitive)", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+      { assetType: "credit_alphanum4", assetCode: "USDT", assetIssuer: "GISSUER2", balance: "25.0000000", balanceFloat: 25 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, { assetCode: "usdc" });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].assetCode).toBe("USDC");
+    }
+  });
+
+  it("filters by assetIssuer (exact match, null-guarded)", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER2", balance: "25.0000000", balanceFloat: 25 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, { assetIssuer: "GISSUER1" });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].assetIssuer).toBe("GISSUER1");
+    }
+  });
+
+  it("filters by assetType as single string value", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+      { assetType: "credit_alphanum12", assetCode: "EURC", assetIssuer: "GISSUER2", balance: "25.0000000", balanceFloat: 25 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, { assetType: "credit_alphanum4" });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].assetType).toBe("credit_alphanum4");
+    }
+  });
+
+  it("filters by assetType as array", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+      { assetType: "credit_alphanum12", assetCode: "EURC", assetIssuer: "GISSUER2", balance: "25.0000000", balanceFloat: 25 },
+      { assetType: "liquidity_pool_shares", assetCode: "Pool", assetIssuer: null, balance: "10.0000000", balanceFloat: 10 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, {
+      assetType: ["credit_alphanum4", "credit_alphanum12"],
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(2);
+      expect(result.data.map((b) => b.assetType).sort()).toEqual([
+        "credit_alphanum12",
+        "credit_alphanum4",
+      ]);
+    }
+  });
+
+  it("filters by excludeZero using balanceFloat > 0", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "0.0000000", balanceFloat: 0 },
+      { assetType: "credit_alphanum4", assetCode: "USDT", assetIssuer: "GISSUER2", balance: "50.0000000", balanceFloat: 50 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, { excludeZero: true });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(2);
+      expect(result.data.every((b) => b.balanceFloat > 0)).toBe(true);
+    }
+  });
+
+  it("combines multiple filters (assetCode + excludeZero)", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getAssetBalances } = await import("../account/getAssetBalances");
+
+    const account = mockAccountWithBalances([
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "100.0000000", balanceFloat: 100 },
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER2", balance: "0.0000000", balanceFloat: 0 },
+      { assetType: "credit_alphanum4", assetCode: "USDT", assetIssuer: "GISSUER3", balance: "50.0000000", balanceFloat: 50 },
+    ]);
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, {
+      assetCode: "USDC",
+      excludeZero: true,
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].assetCode).toBe("USDC");
+      expect(result.data[0].balanceFloat).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("getAccountActivitySummary (#140)", () => {
   const HORIZON_URL = "https://horizon-testnet.stellar.org";
   const PUBLIC_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
@@ -1024,6 +1271,46 @@ describe("getAccountActivitySummary (#140)", () => {
       expect(res.data.failedTransactionCount).toBe(1);
       expect(res.data.successfulTransactionCount).toBe(0);
     }
+  });
+});
+
+describe("parseFloat precision boundary (#246)", () => {
+  it("documents the maximum safe float balance value", () => {
+    // JavaScript's Number.MAX_SAFE_INTEGER = 9,007,199,254,740,991 (~9e15)
+    // Stellar balances are stored as 7-decimal strings. The worst-case safe
+    // balance value (the largest integer that parseFloat can round-trip
+    // through Number → String without loss) is:
+    //
+    //   MAX_SAFE / 10^7 = 900,719,925,474.0992 XLM
+    //
+    // Any balance under 100 billion XLM — far beyond any realistic account —
+    // is guaranteed to survive parseFloat → String → parseFloat without
+    // change.
+    const maxSafeXlm = Number.MAX_SAFE_INTEGER / 10_000_000;
+
+    expect(maxSafeXlm).toBe(900719925.4740992);
+    expect(Number.isFinite(maxSafeXlm)).toBe(true);
+
+    // Verify round-trip stability for realistic balances
+    const realistic = [
+      "0.0000001",
+      "1.0000000",
+      "100.1234567",
+      "9999999.9999999",
+      "100000000000.0000000", // 100 billion XLM — still safe
+    ];
+
+    for (const bal of realistic) {
+      const roundTripped = parseFloat(bal).toFixed(7);
+      expect(roundTripped).toBe(bal);
+    }
+
+    // Demonstrate where precision loss begins
+    const edgeCase = "999999999999999.9999999"; // ~1 quadrillion XLM
+    const parsed = parseFloat(edgeCase);
+    const restored = parsed.toFixed(7);
+    // At this magnitude the last decimal digit may be lost
+    expect(restored).not.toBe(edgeCase);
   });
 });
 

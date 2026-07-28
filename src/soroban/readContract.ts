@@ -105,13 +105,7 @@ export async function readContract(
       const horizonServer = createHorizonServer(horizonUrl);
       const contract = new Contract(params.contractId);
 
-      const sourceAccount = await horizonServer
-        .loadAccount(params.publicKey)
-        .catch((cause) => {
-          throw new Error(
-            `Could not load source account ${params.publicKey}: ${toMessage(cause)}`,
-          );
-        });
+      const sourceAccount = await horizonServer.loadAccount(params.publicKey);
 
       const operation = contract.call(params.method, ...(params.args ?? []));
 

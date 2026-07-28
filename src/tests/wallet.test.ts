@@ -164,6 +164,17 @@ describe("wallet module functions", () => {
     }
   });
 
+  it("emptyWalletState() returns a fresh object reference on every call", () => {
+    const result1 = emptyWalletState();
+    const result2 = emptyWalletState();
+    expect(result1.status).toBe("ok");
+    expect(result2.status).toBe("ok");
+    if (result1.status === "ok" && result2.status === "ok") {
+      expect(result1).not.toBe(result2);
+      expect(result1.data).not.toBe(result2.data);
+    }
+  });
+
   it("connectWallet() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
     const result = await connectWallet(new FreighterAdapter(mockKit()));
     expect(result.status).toBe("error");
@@ -1170,5 +1181,115 @@ describe("signTransactionOffline (#145)", () => {
     expect(Buffer.from(signatures[0]!.hint())).toEqual(
       Buffer.from(source.signatureHint()),
     );
+  });
+});
+
+describe("adapter signTransaction() with browser simulation (#274)", () => {
+  it("FreighterAdapter returns ok with signed XDR when isAvailable() is mocked true", async () => {
+    const kit = mockKit();
+    const adapter = new FreighterAdapter(kit);
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+    const result = await adapter.signTransaction({
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe("signed-xdr-string");
+    }
+  });
+
+  it("FreighterAdapter returns WALLET_SIGN_REJECTED when user rejects in simulated browser", async () => {
+    const kit = mockKit({
+      signTransaction: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+    });
+    const adapter = new FreighterAdapter(kit);
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+    const result = await adapter.signTransaction({
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+    }
+  });
+
+  it("FreighterAdapter returns WALLET_SIGN_FAILED when signing throws a non-rejection error", async () => {
+    const kit = mockKit({
+      signTransaction: vi.fn().mockRejectedValue(new Error("Network timeout")),
+    });
+    const adapter = new FreighterAdapter(kit);
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+    const result = await adapter.signTransaction({
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    }
+  });
+
+  it("XBullAdapter returns ok with signed XDR when isAvailable() is mocked true", async () => {
+    const kit = mockKit();
+    const adapter = new XBullAdapter(kit);
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+    const result = await adapter.signTransaction({
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe("signed-xdr-string");
+    }
+  });
+
+  it("LobstrAdapter returns ok with signed XDR when isAvailable() is mocked true", async () => {
+    const kit = mockKit();
+    const adapter = new LobstrAdapter(kit);
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+
+    const result = await adapter.signTransaction({
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe("signed-xdr-string");
+    }
+  });
+
+  it("all three adapters route user-rejection to WALLET_SIGN_REJECTED", async () => {
+    const rejectedError = new Error("User rejected the request");
+    const kitFn = () =>
+      mockKit({ signTransaction: vi.fn().mockRejectedValue(rejectedError) });
+
+    const adapters = [
+      new FreighterAdapter(kitFn()),
+      new XBullAdapter(kitFn()),
+      new LobstrAdapter(kitFn()),
+    ];
+
+    for (const adapter of adapters) {
+      vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+      const result = await adapter.signTransaction({
+        transactionXdr: "xdr",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+      }
+    }
   });
 });

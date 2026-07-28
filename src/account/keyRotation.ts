@@ -182,7 +182,7 @@ export async function setAccountRecovery(
       networkPassphrase: networkConfig.networkPassphrase,
     });
 
-    const setOptionsParams: Operation.SetOptionsOptions = {
+    const setOptionsParams: Parameters<typeof Operation.setOptions>[0] = {
       signer: {
         ed25519PublicKey: recoveryKey,
         weight: recoveryWeight,
