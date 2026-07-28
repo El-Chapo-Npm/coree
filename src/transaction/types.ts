@@ -7,6 +7,12 @@ export type TransactionStatus = "pending" | "success" | "failed" | "not_found";
 export interface TransactionResult {
   hash: string;
   status: TransactionStatus;
+  /**
+   * Ledger sequence number the transaction was included in.
+   * `undefined` when `status` is `"pending"` — Horizon reports `ledger_attr`
+   * as `0` (or omits it) for transactions that have been submitted but not
+   * yet confirmed in a ledger, so that value is never surfaced here.
+   */
   ledger?: number;
   createdAt?: string;
   fee?: string;

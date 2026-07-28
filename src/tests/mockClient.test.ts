@@ -102,6 +102,30 @@ describe("createMockClient", () => {
     expect(vi.isMockFunction(client.account.get)).toBe(true);
     expect(vi.isMockFunction(client.account.getBalances)).toBe(true);
     expect(vi.isMockFunction(client.account.formatAddress)).toBe(true);
+    expect(vi.isMockFunction(client.account.stream)).toBe(true);
+  });
+
+  it("account.stream is an async generator that yields account info", async () => {
+    const client = createMockClient();
+    const gen = client.account.stream(MOCK_PUBLIC_KEY);
+    const result = await gen.next();
+    expect(result.done).toBe(false);
+    expect(result.value.status).toBe("ok");
+    if (result.value.status === "ok") {
+      expect(result.value.data.publicKey).toBe(MOCK_PUBLIC_KEY);
+    }
+  });
+
+  it("transaction.stream is an async generator that yields transaction pages", async () => {
+    const client = createMockClient();
+    const gen = client.transaction.stream(MOCK_PUBLIC_KEY);
+    const result = await gen.next();
+    expect(result.done).toBe(false);
+    expect(result.value.status).toBe("ok");
+    if (result.value.status === "ok") {
+      expect(result.value.data.transactions).toEqual([]);
+      expect(result.value.data.nextCursor).toBeNull();
+    }
   });
 
   it("stubs can be overridden with mockResolvedValueOnce", async () => {
