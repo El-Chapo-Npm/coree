@@ -125,7 +125,20 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
+  CongestionFeeEstimate,
 } from "./estimateFee";
+export { fetchCongestionFeeEstimate } from "./estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+} from "./pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./pathPayment";
 export type {
   TransactionStreamConfig,
   TransactionPage,
