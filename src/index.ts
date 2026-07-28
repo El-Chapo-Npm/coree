@@ -66,6 +66,8 @@ export type {
 
 // ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export { createBalanceAlert } from "./account/createBalanceAlert";
+export type { BalanceAlertConfig } from "./account/createBalanceAlert";
 export { getAccountsBatch } from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
