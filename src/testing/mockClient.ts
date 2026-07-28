@@ -188,7 +188,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       getStatus: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
       estimateFee: vi.fn().mockResolvedValue(ok(MOCK_FEE_ESTIMATE)),
       stream: vi.fn().mockImplementation(async function* () {
-        yield ok({ transactions: [], nextCursor: null });
+        yield ok({ transactions: [MOCK_TX_RESULT], nextCursor: null });
       }),
       validateDestination: vi.fn().mockResolvedValue(ok({ valid: true, exists: true, isFunded: true })),
       queryHistory: vi.fn().mockResolvedValue(ok({ transactions: [], total: 0, page: 1, pageSize: 10 })),

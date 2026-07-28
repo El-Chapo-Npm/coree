@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formatAddress } from "../shared/utils";
-import { ok } from "../shared/response";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { AccountInfo } from "../account/types";
 
 const accountMockState = vi.hoisted(() => ({
@@ -1507,5 +1507,233 @@ describe("parseFloat precision boundary (#246)", () => {
     // At this magnitude the last decimal digit may be lost
     expect(restored).not.toBe(edgeCase);
   });
+});
+
+describe("getAccount — expanded coverage (#235)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    accountMockState.index = 0;
+    accountMockState.results = [];
+  });
+
+  it("returns issued asset balances with correct type, code, and issuer", async () => {
+    const { getAccount } = await import("../account/getAccount");
+
+    const account: AccountInfo = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "12345",
+      subentryCount: 3,
+      balances: [
+        { assetType: "native", assetCode: "XLM", assetIssuer: null, balance: "100.0000000", balanceFloat: 100 },
+        { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1", balance: "50.0000000", balanceFloat: 50 },
+        { assetType: "credit_alphanum12", assetCode: "VERYLONGASSET", assetIssuer: "GISSUER2", balance: "25.0000000", balanceFloat: 25 },
+      ],
+    };
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getAccount("https://horizon.test", account.publicKey);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.balances).toHaveLength(3);
+      expect(result.data.balances[0]).toMatchObject({ assetType: "native", assetCode: "XLM", assetIssuer: null });
+      expect(result.data.balances[1]).toMatchObject({ assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: "GISSUER1" });
+      expect(result.data.balances[2]).toMatchObject({ assetType: "credit_alphanum12", assetCode: "VERYLONGASSET", assetIssuer: "GISSUER2" });
+    }
+  });
+
+  it("returns ACCOUNT_NOT_FOUND on 404", async () => {
+    const { getAccount } = await import("../account/getAccount");
+
+    vi.mocked(getAccount).mockResolvedValueOnce(
+      err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Account not found: GAAA..."),
+    );
+
+    const result = await getAccount("https://horizon.test", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+    }
+  });
+
+  it("returns ACCOUNT_FETCH_FAILED on non-404 network errors", async () => {
+    const { getAccount } = await import("../account/getAccount");
+
+    vi.mocked(getAccount).mockResolvedValueOnce(
+      err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "Failed to fetch account: Server internal error"),
+    );
+
+    const result = await getAccount("https://horizon.test", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_FETCH_FAILED);
+    }
+  });
+});
+
+describe("getBalances — expanded coverage (#235)", () => {
+  beforeEach(() => {
+    accountMockState.index = 0;
+    accountMockState.results = [];
+  });
+
+  it("returns balances on success", async () => {
+    const { getBalances } = await import("../account/getBalances");
+    const { getAccount } = await import("../account/getAccount");
+    const account = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+        { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GISSUER", balance: "50", balanceFloat: 50 },
+      ],
+    };
+
+    vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+    const result = await getBalances("https://horizon.test", account.publicKey);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]?.assetCode).toBe("XLM");
+      expect(result.data[1]?.assetCode).toBe("USDC");
+    }
+  });
+
+  it("propagates error when getAccount fails", async () => {
+    const { getBalances } = await import("../account/getBalances");
+    const { getAccount } = await import("../account/getAccount");
+
+    vi.mocked(getAccount).mockResolvedValueOnce(
+      err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Account not found"),
+    );
+
+    const result = await getBalances("https://horizon.test", "GAAA...");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+    }
+  });
+});
+
+describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error (#235)", () => {
+  beforeEach(async () => {
+    accountMockState.sleepCalls.length = 0;
+    accountMockState.index = 0;
+    accountMockState.results = [];
+    const { getAccount } = await import("../account/getAccount");
+    vi.mocked(getAccount).mockReset();
+    vi.mocked(getAccount).mockImplementation(async () => {
+      const result =
+        accountMockState.results[accountMockState.index] ??
+        accountMockState.results.at(-1)!;
+      accountMockState.index++;
+      return ok(result);
+    });
+  });
+
+  it("emitOnStart: true yields immediately without sleeping", async () => {
+    accountMockState.results = [createAccount("1")];
+
+    const stream = streamAccount("https://horizon.test", "G...", {
+      emitOnStart: true,
+      maxPolls: 1,
+      intervalMs: 5000,
+    });
+
+    const { value } = await stream.next();
+    expect(value?.status).toBe("ok");
+    expect(accountMockState.sleepCalls).toHaveLength(0);
+  });
+
+  it("emitOnStart: false sleeps before first yield", async () => {
+    accountMockState.results = [createAccount("1")];
+
+    const stream = streamAccount("https://horizon.test", "G...", {
+      emitOnStart: false,
+      maxPolls: 1,
+      intervalMs: 3000,
+    });
+
+    await stream.next();
+    expect(accountMockState.sleepCalls).toEqual([3000]);
+  });
+
+  it("maxPolls: 2 stops after exactly 2 polls", async () => {
+    accountMockState.results = [
+      createAccount("1"),
+      createAccount("2"),
+      createAccount("3"),
+    ];
+
+    const results: unknown[] = [];
+    const stream = streamAccount("https://horizon.test", "G...", {
+      maxPolls: 2,
+      emitOnStart: true,
+      intervalMs: 100,
+    });
+
+    for await (const r of stream) {
+      results.push(r);
+    }
+
+    expect(results).toHaveLength(2);
+  }, 10_000);
+
+  it("AbortSignal terminates the generator early", async () => {
+    accountMockState.results = [
+      createAccount("1"),
+      createAccount("2"),
+      createAccount("3"),
+    ];
+
+    const ac = new AbortController();
+    const results: unknown[] = [];
+    const stream = streamAccount("https://horizon.test", "G...", {
+      emitOnStart: true,
+      intervalMs: 1,
+    }, ac.signal);
+
+    for await (const r of stream) {
+      results.push(r);
+      if (results.length === 1) {
+        ac.abort();
+      }
+    }
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.length).toBeLessThanOrEqual(2);
+  }, 10_000);
+
+  it("mid-stream error yields err result without ending the stream", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+
+    const account1 = createAccount("1");
+    const account2 = createAccount("2");
+    const errorResult = err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "temporary failure");
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(account1))
+      .mockResolvedValueOnce(errorResult)
+      .mockResolvedValueOnce(ok(account2));
+
+    const results: unknown[] = [];
+    for await (const r of streamAccount("https://horizon.test", "G...", {
+      maxPolls: 3,
+      emitOnStart: true,
+      intervalMs: 1,
+    })) {
+      results.push(r);
+    }
+
+    expect(results).toHaveLength(3);
+    expect(results[0]).toEqual(expect.objectContaining({ status: "ok" }));
+    expect(results[1]).toEqual(expect.objectContaining({ status: "error" }));
+    expect(results[2]).toEqual(expect.objectContaining({ status: "ok" }));
+  }, 10_000);
 });
 
