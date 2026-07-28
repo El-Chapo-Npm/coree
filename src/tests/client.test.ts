@@ -122,6 +122,47 @@ describe("createSorokitClient", () => {
     }
   });
 
+  describe("sorobanPoll validation (#285)", () => {
+    it("returns CONTRACT_INVOKE_FAILED when maxAttempts is 0 or negative", () => {
+      const res0 = createSorokitClient({
+        network: "testnet",
+        sorobanPoll: { maxAttempts: 0 },
+      });
+      expect(res0.status).toBe("error");
+      if (res0.status === "error") {
+        expect(res0.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+        expect(res0.error.message).toBe("sorobanPoll.maxAttempts must be a positive integer.");
+      }
+
+      const resNeg = createSorokitClient({
+        network: "testnet",
+        sorobanPoll: { maxAttempts: -5 },
+      });
+      expect(resNeg.status).toBe("error");
+      if (resNeg.status === "error") {
+        expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+      }
+    });
+
+    it("returns CONTRACT_INVOKE_FAILED when intervalMs is negative", () => {
+      const resNeg = createSorokitClient({
+        network: "testnet",
+        sorobanPoll: { intervalMs: -100 },
+      });
+      expect(resNeg.status).toBe("error");
+      if (resNeg.status === "error") {
+        expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+        expect(resNeg.error.message).toBe("sorobanPoll.intervalMs must be a non-negative number.");
+      }
+    });
+
+    it("creates client successfully with valid sorobanPoll override", () => {
+      const res = createSorokitClient({
+        network: "testnet",
+        sorobanPoll: { maxAttempts: 10, intervalMs: 2000 },
+      });
+      expect(res.status).toBe("ok");
+    });
   it("exposes version property matching package version", () => {
     const result = createSorokitClient({ network: "testnet" });
     expect(result.status).toBe("ok");

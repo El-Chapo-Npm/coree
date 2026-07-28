@@ -3,6 +3,11 @@
  */
 import type { xdr } from "@stellar/stellar-sdk";
 import type { ContractStateTracker } from "./contractStateTracker";
+export type { ContractStateTracker };
+import {
+  DEFAULT_POLL_MAX_ATTEMPTS,
+  DEFAULT_POLL_INTERVAL_MS,
+} from "../shared/constants";
 export type { ContractStateTracker } from "./contractStateTracker";
 
 export interface ContractMethodInput {
@@ -91,9 +96,15 @@ export interface PreparedContractCall {
  * Configuration for the polling loop in invokeContract().
  */
 export interface SorobanPollConfig {
-  /** Maximum number of polling attempts before giving up. Default: 20 */
+  /**
+   * Maximum number of polling attempts before giving up.
+   * @default DEFAULT_POLL_MAX_ATTEMPTS (20)
+   */
   maxAttempts?: number;
-  /** Milliseconds between polling attempts. Default: 1500 */
+  /**
+   * Milliseconds between polling attempts.
+   * @default DEFAULT_POLL_INTERVAL_MS (1500)
+   */
   intervalMs?: number;
 }
 

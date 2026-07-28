@@ -5,7 +5,7 @@ import type { SorokitLogger } from "../shared/logger";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, SorobanPollConfig } from "./types";
 import { prepareContractCall } from "./prepareCall";
-import { executeContract } from "./executeContract";
+import { executeContract, validateSorobanPollConfig } from "./executeContract";
 
 /**
  * Full Soroban contract invoke pipeline: prepare → sign → execute.
@@ -52,6 +52,9 @@ export async function invokeContract(
   pollConfig?: SorobanPollConfig,
   logger?: SorokitLogger,
 ): Promise<SorokitResult<string>> {
+  const pollErr = validateSorobanPollConfig(pollConfig);
+  if (pollErr) return pollErr;
+
   // ── Step 1: Prepare ────────────────────────────────────────────────────────
   const prepared = await prepareContractCall(
     rpcUrl,
