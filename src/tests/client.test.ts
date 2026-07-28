@@ -30,6 +30,19 @@ vi.mock("../transaction/streamTransactions", async (importOriginal) => {
   };
 });
 
+const { mockGetAccount } = vi.hoisted(() => ({
+  mockGetAccount: vi.fn(),
+}));
+
+vi.mock("../account/getAccount", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../account/getAccount")>();
+  mockGetAccount.mockImplementation(actual.getAccount);
+  return {
+    ...actual,
+    getAccount: mockGetAccount,
+  };
+});
+
 describe("createSorokitClient", () => {
   it("creates a client for testnet", () => {
     const result = createSorokitClient({ network: "testnet" });
@@ -460,5 +473,31 @@ describe("createSorokitClient", () => {
         expect(res.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
       }
     }
+  });
+
+  it("returns cached result and does not call Horizon if cache is warm", async () => {
+    mockGetAccount.mockClear();
+    const mockCache = {
+      get: vi.fn(),
+      set: vi.fn(),
+      invalidate: vi.fn(),
+      delete: vi.fn(),
+    };
+    const cachedAccount = { publicKey: "G...", sequence: "1", balances: [] };
+    mockCache.get.mockReturnValue(cachedAccount);
+
+    const result = createSorokitClient({ network: "testnet", cache: mockCache });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const client = result.data;
+      const res = await client.account.get("G...");
+      expect(res.status).toBe("ok");
+      expect(mockCache.get).toHaveBeenCalledWith(expect.stringContaining("account:get:"));
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      if (res.status === "ok") {
+        expect(res.data).toEqual(cachedAccount);
+      }
+    }
+    mockGetAccount.mockClear();
   });
 });

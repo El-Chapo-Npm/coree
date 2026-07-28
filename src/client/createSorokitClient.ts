@@ -656,9 +656,16 @@ export function createSorokitClient(
           errorHandler,
           { functionName: "account.get", params: { publicKey } },
           () =>
-            withLogging(logger, "account.get", { publicKey }, () =>
-              getAccount(horizonUrl, publicKey),
-            ),
+            withLogging(logger, "account.get", { publicKey }, async () => {
+              const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AccountInfo);
+              }
+              const res = await getAccount(horizonUrl, publicKey);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
       getAccountsBatch: (publicKeys) =>
         withErrorHandling(
@@ -674,18 +681,32 @@ export function createSorokitClient(
           errorHandler,
           { functionName: "account.getBalances", params: { publicKey } },
           () =>
-            withLogging(logger, "account.getBalances", { publicKey }, () =>
-              getBalances(horizonUrl, publicKey),
-            ),
+            withLogging(logger, "account.getBalances", { publicKey }, async () => {
+              const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AssetBalance[]);
+              }
+              const res = await getBalances(horizonUrl, publicKey);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
       getAssetBalances: (publicKey, filter) =>
         withErrorHandling(
           errorHandler,
           { functionName: "account.getAssetBalances", params: { publicKey, filter } },
           () =>
-            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
-              getAssetBalances(horizonUrl, publicKey, filter),
-            ),
+            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, async () => {
+              const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AssetBalance[]);
+              }
+              const res = await getAssetBalances(horizonUrl, publicKey, filter);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
