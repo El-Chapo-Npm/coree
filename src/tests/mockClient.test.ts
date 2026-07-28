@@ -123,9 +123,29 @@ describe("createMockClient", () => {
     expect(result.done).toBe(false);
     expect(result.value.status).toBe("ok");
     if (result.value.status === "ok") {
-      expect(result.value.data.transactions).toEqual([]);
+      expect(result.value.data.transactions).toEqual([MOCK_TX_RESULT]);
       expect(result.value.data.nextCursor).toBeNull();
     }
+  });
+
+  it("account.stream can be consumed with for await...of", async () => {
+    const client = createMockClient();
+    const results: unknown[] = [];
+    for await (const result of client.account.stream(MOCK_PUBLIC_KEY)) {
+      results.push(result);
+    }
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(expect.objectContaining({ status: "ok" }));
+  });
+
+  it("transaction.stream can be consumed with for await...of", async () => {
+    const client = createMockClient();
+    const results: unknown[] = [];
+    for await (const result of client.transaction.stream(MOCK_PUBLIC_KEY)) {
+      results.push(result);
+    }
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(expect.objectContaining({ status: "ok" }));
   });
 
   it("stubs can be overridden with mockResolvedValueOnce", async () => {
