@@ -138,6 +138,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
   const accountInfo = config?.accountInfo ?? MOCK_ACCOUNT_INFO;
 
   return {
+    version: "0.1.0",
     networkConfig,
     trustedIssuers: null,
     traceId: "mock-trace-id",
@@ -168,6 +169,8 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       getBalances: vi.fn().mockResolvedValue(ok(accountInfo.balances)),
       getAssetBalances: vi.fn().mockResolvedValue(ok(accountInfo.balances)),
       formatAddress: vi.fn().mockReturnValue(accountInfo.displayAddress),
+      isValidPublicKey: vi.fn().mockReturnValue(true),
+      isValidContractId: vi.fn().mockReturnValue(true),
       stream: vi.fn().mockImplementation(async function* () {
         yield ok(accountInfo);
       }),
@@ -204,8 +207,9 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
 
     network: {
       getConfig: vi.fn().mockReturnValue(networkConfig),
+      getId: vi.fn().mockReturnValue(networkConfig.network),
     },
-  };
+  } as unknown as SorokitClient;
 }
 
 /**
@@ -222,8 +226,6 @@ export function createMockWalletAdapter() {
     connect: vi.fn().mockResolvedValue(ok(MOCK_PUBLIC_KEY)),
     disconnect: vi.fn().mockResolvedValue(ok(undefined)),
     signTransaction: vi.fn().mockResolvedValue(ok("SIGNED_XDR_MOCK==")),
-    // Optional multi-account stubs — set by default so tests can assert on them.
-    // Override with undefined to simulate a single-account wallet.
     getAccounts: vi.fn().mockResolvedValue(ok([MOCK_PUBLIC_KEY])),
     setActiveAccount: vi.fn().mockResolvedValue(ok(MOCK_PUBLIC_KEY)),
   };

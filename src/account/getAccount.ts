@@ -79,8 +79,6 @@ export function getAccount(
           assetIssuer: null,
           balance: b.balance,
           balanceFloat: pf(b.balance),
-          liquidityPoolId: (b as { liquidity_pool_id?: string }).liquidity_pool_id,
-          balanceFloat: parseFloat(b.balance),
           ...(liquidityPoolId !== undefined ? { liquidityPoolId } : {}),
         };
 

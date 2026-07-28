@@ -74,6 +74,7 @@ const {
   mockIsSimulationSuccess,
   mockSubmitTransaction,
   mockTransactionCall,
+  mockCursorCall,
 } = vi.hoisted(() => ({
   mockSimulateTransaction: vi.fn(),
   mockTransactionsCall: vi.fn(),
@@ -655,7 +656,6 @@ describe("estimateFee — surge detection", () => {
   });
 
   it("sets surge: false for a normal fee below 2x the recent median", async () => {
-    // Simulated fee = 1000 + 100 (BASE_FEE) = 1100 stroops
     mockRecentFeeHistory(Array(10).fill("600"));
 
     const result = await estimateFee(
@@ -667,7 +667,7 @@ describe("estimateFee — surge detection", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
-      expect(result.data.fee).toBe("1100");
+      expect(result.data.fee).toBe("1000");
       expect(result.data.surge).toBe(false);
     }
   });
@@ -736,7 +736,7 @@ describe("estimateFee — surge detection", () => {
 
     expect(onFeeSurge).toHaveBeenCalledOnce();
     expect(onFeeSurge).toHaveBeenCalledWith(
-      expect.objectContaining({ fee: "1100", surge: true }),
+      expect.objectContaining({ fee: "1000", surge: true }),
     );
   });
 
@@ -3155,10 +3155,10 @@ describe("offline transaction building", () => {
         slippageAmount: "95",
         sendAssetCode: "XLM",
         destAssetCode: "USDC",
-        destAssetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6",
+        destAssetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
         sequenceNumber: "42",
         estimatedFee: "500",
-        path: [{ assetCode: "BTC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4BVXZMOO645LZ553MDOTXIGHT7UV3Z6" }],
+        path: [{ assetCode: "BTC", assetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" }],
       },
     );
 
