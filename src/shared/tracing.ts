@@ -28,6 +28,7 @@
  */
 
 import { generateTraceId } from "./utils";
+import { randomBytes } from "crypto";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -104,8 +105,15 @@ export function createTraceContext(
  * Generate a 64-bit hex span identifier.
  */
 function generateSpanId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c?.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    c.getRandomValues(bytes);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  const bytes = randomBytes(8);
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

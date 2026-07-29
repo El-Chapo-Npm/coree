@@ -1,5 +1,14 @@
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
+
+// ─── Circuit breaker (#186) ────────────────────────────────────────────────────
+export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./circuitBreaker";
+export type {
+  CircuitBreakerConfig,
+  CircuitBreakerMetrics,
+  CircuitState,
+  CircuitStateChangeEvent,
+} from "./circuitBreaker";
 export type { NetworkType, NetworkConfig } from "./types";
 export { NETWORK_DEFAULTS } from "./config";
 

@@ -26,9 +26,11 @@ export type {
 } from "./simulateContractSafe";
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
+export type { InvokeContractOptions } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
 export { subscribeContractEvents, queryContractEvents, streamContractEvents } from "./subscribeContractEvents";
-export { getContractMethods } from "./contractMetadata";
+export { getContractMethods, parseContractSchema, validateContractArgs } from "./contractMetadata";
+export type { ContractSchema, ContractMethodSchema, ContractMethodParam } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
 export { SorobanSimulator } from "./simulator";
 export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";

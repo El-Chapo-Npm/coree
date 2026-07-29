@@ -8,7 +8,6 @@ import {
   DEFAULT_POLL_MAX_ATTEMPTS,
   DEFAULT_POLL_INTERVAL_MS,
 } from "../shared/constants";
-export type { ContractStateTracker } from "./contractStateTracker";
 
 export interface ContractMethodInput {
   name: string;

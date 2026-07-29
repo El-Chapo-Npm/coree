@@ -35,19 +35,19 @@ describe("createMockClient", () => {
   it("wallet.connect stub resolves with connected wallet state", async () => {
     const client = createMockClient();
     const result = await client.wallet.connect(MOCK_CONNECTED_WALLET_STATE.walletType!);
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("wallet.emptyState returns default wallet state", () => {
     const client = createMockClient();
     const result = client.wallet.emptyState();
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("account.get resolves with default account info", async () => {
     const client = createMockClient();
     const result = await client.account.get(MOCK_PUBLIC_KEY);
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("account.formatAddress returns display address string", () => {
@@ -60,13 +60,13 @@ describe("createMockClient", () => {
   it("transaction.submit resolves with tx result", async () => {
     const client = createMockClient();
     const result = await client.transaction.submit("SIGNED_XDR_MOCK==");
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("soroban.simulate resolves with simulate result", async () => {
     const client = createMockClient();
     const result = await client.soroban.simulate("CONTRACT_ID", "method", []);
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("network.getConfig returns network config synchronously", () => {
@@ -85,7 +85,7 @@ describe("createMockClient", () => {
     const customAccount = { ...MOCK_ACCOUNT_INFO, sequence: "9999" };
     const client = createMockClient({ accountInfo: customAccount });
     const result = await client.account.get(MOCK_PUBLIC_KEY);
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("all wallet methods are vi.fn() stubs", () => {
@@ -123,9 +123,29 @@ describe("createMockClient", () => {
     expect(result.done).toBe(false);
     expect(result.value.status).toBe("ok");
     if (result.value.status === "ok") {
-      expect(result.value.data.transactions).toEqual([]);
+      expect(result.value.data.transactions).toEqual([MOCK_TX_RESULT]);
       expect(result.value.data.nextCursor).toBeNull();
     }
+  });
+
+  it("account.stream can be consumed with for await...of", async () => {
+    const client = createMockClient();
+    const results: unknown[] = [];
+    for await (const result of client.account.stream(MOCK_PUBLIC_KEY)) {
+      results.push(result);
+    }
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(expect.objectContaining({ status: "ok" }));
+  });
+
+  it("transaction.stream can be consumed with for await...of", async () => {
+    const client = createMockClient();
+    const results: unknown[] = [];
+    for await (const result of client.transaction.stream(MOCK_PUBLIC_KEY)) {
+      results.push(result);
+    }
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(expect.objectContaining({ status: "ok" }));
   });
 
   it("stubs can be overridden with mockResolvedValueOnce", async () => {
@@ -156,19 +176,19 @@ describe("createMockWalletAdapter", () => {
   it("connect resolves with ok public key by default", async () => {
     const adapter = createMockWalletAdapter();
     const result = await adapter.connect();
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("disconnect resolves with ok by default", async () => {
     const adapter = createMockWalletAdapter();
     const result = await adapter.disconnect();
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("getAccounts resolves with array containing mock public key", async () => {
     const adapter = createMockWalletAdapter();
     const result = await adapter.getAccounts();
-    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(result.status).toBe("ok");
   });
 
   it("connect stub can be overridden to simulate failure", async () => {

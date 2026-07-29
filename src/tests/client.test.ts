@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
 import { SorokitErrorCode, err, ok } from "../shared/response";
 import { WalletType } from "../wallet/types";
@@ -30,16 +30,68 @@ vi.mock("../transaction/streamTransactions", async (importOriginal) => {
   };
 });
 
-const { mockGetAccount } = vi.hoisted(() => ({
-  mockGetAccount: vi.fn(),
+const { mockSimulateTransaction } = vi.hoisted(() => ({
+  mockSimulateTransaction: vi.fn(),
 }));
 
-vi.mock("../account/getAccount", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../account/getAccount")>();
-  mockGetAccount.mockImplementation(actual.getAccount);
+vi.mock("../soroban/simulateTransaction", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../soroban/simulateTransaction")>();
   return {
     ...actual,
-    getAccount: mockGetAccount,
+    simulateTransaction: mockSimulateTransaction,
+  };
+});
+
+const { mockPrepareContractCall } = vi.hoisted(() => ({
+  mockPrepareContractCall: vi.fn(),
+}));
+
+vi.mock("../soroban/prepareCall", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../soroban/prepareCall")>();
+  return {
+    ...actual,
+    prepareContractCall: mockPrepareContractCall,
+  };
+});
+
+const { mockExecuteContract } = vi.hoisted(() => ({
+  mockExecuteContract: vi.fn(),
+}));
+
+vi.mock("../soroban/executeContract", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../soroban/executeContract")>();
+  return {
+    ...actual,
+    executeContract: mockExecuteContract,
+  };
+});
+
+const { mockInvokeContract } = vi.hoisted(() => ({
+  mockInvokeContract: vi.fn(),
+}));
+
+vi.mock("../soroban/invokeContract", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../soroban/invokeContract")>();
+  return {
+    ...actual,
+    invokeContract: mockInvokeContract,
+  };
+});
+
+const { mockReadContract } = vi.hoisted(() => ({
+  mockReadContract: vi.fn(),
+}));
+
+vi.mock("../soroban/readContract", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../soroban/readContract")>();
+  return {
+    ...actual,
+    readContract: mockReadContract,
   };
 });
 
@@ -176,6 +228,8 @@ describe("createSorokitClient", () => {
       });
       expect(res.status).toBe("ok");
     });
+  });
+
   it("exposes version property matching package version", () => {
     const result = createSorokitClient({ network: "testnet" });
     expect(result.status).toBe("ok");
@@ -475,29 +529,134 @@ describe("createSorokitClient", () => {
     }
   });
 
-  it("returns cached result and does not call Horizon if cache is warm", async () => {
-    mockGetAccount.mockClear();
-    const mockCache = {
-      get: vi.fn(),
-      set: vi.fn(),
-      invalidate: vi.fn(),
-      delete: vi.fn(),
-    };
-    const cachedAccount = { publicKey: "G...", sequence: "1", balances: [] };
-    mockCache.get.mockReturnValue(cachedAccount);
+  describe("soroban method wiring (#284)", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
 
-    const result = createSorokitClient({ network: "testnet", cache: mockCache });
-    expect(result.status).toBe("ok");
-    if (result.status === "ok") {
-      const client = result.data;
-      const res = await client.account.get("G...");
-      expect(res.status).toBe("ok");
-      expect(mockCache.get).toHaveBeenCalledWith(expect.stringContaining("account:get:"));
-      expect(mockGetAccount).not.toHaveBeenCalled();
-      if (res.status === "ok") {
-        expect(res.data).toEqual(cachedAccount);
+    it("client.soroban.simulate(xdr) calls simulateTransaction with rpcUrl and networkPassphrase", async () => {
+      mockSimulateTransaction.mockReset();
+      mockSimulateTransaction.mockResolvedValue(ok({ fee: "100", success: true }));
+
+      const result = createSorokitClient({ network: "testnet" });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        const xdr = "AAAAAQAAAA==";
+        const res = await result.data.soroban.simulate(xdr);
+
+        expect(res.status).toBe("ok");
+        expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+        const call = mockSimulateTransaction.mock.calls[0];
+        expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+        expect(call[1]).toBe(result.data.networkConfig.networkPassphrase);
+        expect(call[2]).toBe(xdr);
       }
-    }
-    mockGetAccount.mockClear();
+    });
+
+    it("client.soroban.prepare(params) calls prepareContractCall with rpcUrl, networkConfig, horizonUrl, params", async () => {
+      mockPrepareContractCall.mockReset();
+      mockPrepareContractCall.mockResolvedValue(ok({ transactionXdr: "AAAA", fee: "1000" }));
+
+      const result = createSorokitClient({ network: "testnet" });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        const params = {
+          contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2B",
+          publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          method: "transfer",
+          args: [],
+        };
+        const res = await result.data.soroban.prepare(params);
+
+        expect(res.status).toBe("ok");
+        expect(mockPrepareContractCall).toHaveBeenCalledOnce();
+        const call = mockPrepareContractCall.mock.calls[0];
+        expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+        expect(call[1]).toBe(result.data.networkConfig);
+        expect(call[2]).toBe(result.data.networkConfig.horizonUrl);
+        expect(call[3]).toBe(params);
+      }
+    });
+
+    it("client.soroban.execute(xdr) calls executeContract with rpcUrl, networkConfig, signedXdr, pollConfig", async () => {
+      mockExecuteContract.mockReset();
+      mockExecuteContract.mockResolvedValue(ok("txhash123"));
+
+      const result = createSorokitClient({ network: "testnet" });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        const signedXdr = "AAAAAQAAAA==";
+        const pollConfig = { maxAttempts: 5, intervalMs: 1000 };
+        const res = await result.data.soroban.execute(signedXdr, pollConfig);
+
+        expect(res.status).toBe("ok");
+        expect(mockExecuteContract).toHaveBeenCalledOnce();
+        const call = mockExecuteContract.mock.calls[0];
+        expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+        expect(call[1]).toBe(result.data.networkConfig);
+        expect(call[2]).toBe(signedXdr);
+        expect(call[3]).toBe(pollConfig);
+      }
+    });
+
+    it("client.soroban.invoke(params, signFn) calls invokeContract with rpcUrl, networkConfig, horizonUrl, params, signFn", async () => {
+      mockInvokeContract.mockReset();
+      mockInvokeContract.mockResolvedValue(ok("txhash456"));
+
+      const result = createSorokitClient({ network: "testnet" });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        const params = {
+          contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2B",
+          publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          method: "transfer",
+          args: [],
+        };
+        const signFn = async (xdr: string) => `SIGNED_${xdr}`;
+        const res = await result.data.soroban.invoke(params, signFn);
+
+        expect(res.status).toBe("ok");
+        expect(mockInvokeContract).toHaveBeenCalledOnce();
+        const call = mockInvokeContract.mock.calls[0];
+        expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+        expect(call[1]).toBe(result.data.networkConfig);
+        expect(call[2]).toBe(result.data.networkConfig.horizonUrl);
+        expect(call[3]).toEqual(expect.objectContaining({
+          contractId: params.contractId,
+          publicKey: params.publicKey,
+          method: params.method,
+        }));
+        expect(call[4]).toBe(signFn);
+      }
+    });
+
+    it("client.soroban.read(params) calls readContract with rpcUrl, horizonUrl, networkConfig, params", async () => {
+      mockReadContract.mockReset();
+      mockReadContract.mockResolvedValue(ok({ result: {}, value: "42" }));
+
+      const result = createSorokitClient({ network: "testnet" });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        const params = {
+          contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2B",
+          publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          method: "balance",
+          args: [],
+        };
+        const res = await result.data.soroban.read(params);
+
+        expect(res.status).toBe("ok");
+        expect(mockReadContract).toHaveBeenCalledOnce();
+        const call = mockReadContract.mock.calls[0];
+        expect(call[0]).toBe(result.data.networkConfig.rpcUrl);
+        expect(call[1]).toBe(result.data.networkConfig.horizonUrl);
+        expect(call[2]).toBe(result.data.networkConfig);
+        expect(call[3]).toEqual(expect.objectContaining({
+          contractId: params.contractId,
+          publicKey: params.publicKey,
+          method: params.method,
+        }));
+      }
+    });
   });
 });

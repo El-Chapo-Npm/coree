@@ -50,11 +50,11 @@ export async function getTransactionStatus(
     const result: TransactionResult = {
       hash: tx.hash,
       status: isPending ? "pending" : tx.successful ? "success" : "failed",
-      ledger: isPending ? undefined : tx.ledger_attr,
       createdAt: tx.created_at,
       fee: String(tx.fee_charged),
       envelopeXdr: tx.envelope_xdr,
       resultXdr: tx.result_xdr,
+      ...(isPending ? {} : { ledger: tx.ledger_attr }),
     };
 
     if (cache) {

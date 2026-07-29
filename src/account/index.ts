@@ -5,6 +5,7 @@ export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
+export { createBalanceAlert } from "./createBalanceAlert";
 export {
   rotateAccountKey,
   setAccountRecovery,
@@ -31,4 +32,5 @@ export type {
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";
 export type { AccountStreamConfig } from "./streamAccount";
+export type { BalanceAlertConfig } from "./createBalanceAlert";
 

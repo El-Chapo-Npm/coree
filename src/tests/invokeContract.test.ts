@@ -13,6 +13,7 @@ vi.mock("../soroban/prepareCall", () => ({
 
 vi.mock("../soroban/executeContract", () => ({
   executeContract: mockExecuteContract,
+  validateSorobanPollConfig: vi.fn().mockReturnValue(null),
 }));
 
 import { invokeContract } from "../soroban/invokeContract";

@@ -47,8 +47,7 @@ export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth, NetworkSwitcher, getNetwork, setNetwork } from "./network";
-export { checkNetworkHealth, NetworkSwitcher, NETWORK_DEFAULTS } from "./network";
+export { checkNetworkHealth, NetworkSwitcher, getNetwork, setNetwork, NETWORK_DEFAULTS } from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -64,8 +63,19 @@ export type {
   NetworkSwitcherConfig,
 } from "./network";
 
+// ─── Circuit breaker (#186) ────────────────────────────────────────────────────
+export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./network";
+export type {
+  CircuitBreakerConfig,
+  CircuitBreakerMetrics,
+  CircuitState,
+  CircuitStateChangeEvent,
+} from "./network";
+
 // ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export { createBalanceAlert } from "./account/createBalanceAlert";
+export type { BalanceAlertConfig } from "./account/createBalanceAlert";
 export { getAccountsBatch } from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
@@ -132,8 +142,19 @@ export type {
   FeeEstimateInput,
   FeeEstimateOptions,
   FeeTiers,
+  CongestionFeeEstimate,
 } from "./transaction/estimateFee";
-export { calculateFeeTiers } from "./transaction/estimateFee";
+export { calculateFeeTiers, fetchCongestionFeeEstimate } from "./transaction/estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+} from "./transaction/pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   buildPathPayment,
@@ -236,8 +257,16 @@ export type {
   ContractDataValidationResult,
 } from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
-export { getContractMethods } from "./soroban/contractMetadata";
+export { getContractMethods, parseContractSchema, validateContractArgs } from "./soroban/contractMetadata";
+export type {
+  ContractSchema,
+  ContractMethodSchema,
+  ContractMethodParam,
+} from "./soroban/contractMetadata";
+export { invokeContract } from "./soroban/invokeContract";
+export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
@@ -266,7 +295,7 @@ export type {
 // ─── Response system ──────────────────────────────────────────────────────────
 export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
-export { createInMemoryCache } from "./shared/cache";
+export { createInMemoryCache, invalidateContractState } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
 export type { LogLevel, LoggerOptions, SorokitLogger } from "./shared/logger";
 export {

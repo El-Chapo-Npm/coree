@@ -125,7 +125,20 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
+  CongestionFeeEstimate,
 } from "./estimateFee";
+export { fetchCongestionFeeEstimate } from "./estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+} from "./pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./pathPayment";
 export type {
   TransactionStreamConfig,
   TransactionPage,
@@ -167,6 +180,34 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+// ─── Webhook support (#208) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  verifySignature,
+} from "./webhooks";
+export type {
+  WebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+} from "./webhooks";
+
+// ─── Asset pair trading logic (#209) ───────────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+} from "./assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./assetPairs";
 export {
   buildMultiSigEnvelope,
   collectSignature,
@@ -268,3 +309,8 @@ export async function compareFeeAcrossNetworks(
   );
   return results;
 }
+
+// NOTE: Transaction pre-flight simulation uses the Soroban RPC server
+// and therefore lives in src/soroban/simulateTransaction.ts.
+// It can be accessed via client.soroban.simulate().
+
