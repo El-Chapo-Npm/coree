@@ -203,6 +203,8 @@ export {
   getMultiplePairPrices,
   hasSufficientLiquidity,
   getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
 } from "./assetPairs";
 export type {
   AssetPair,

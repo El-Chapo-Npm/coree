@@ -8,8 +8,16 @@
 import { Asset } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import {
+  validateTokenAsset,
+  isSameAsset,
+  normalizePairId,
+} from "../shared/validateToken";
 import type { SwapRoute, SwapRouteAsset, FindSwapPathOptions } from "./pathPayment";
 import { findSwapPath } from "./pathPayment";
+
+/** Set of pair IDs that have been created in this session. */
+const existingPairIds = new Set<string>();
 
 /**
  * Represents a trading pair between two assets.
@@ -56,34 +64,29 @@ export function createAssetPair(
   asset1: SwapRouteAsset,
   asset2: SwapRouteAsset,
 ): SorokitResult<AssetPair> {
-  if (!asset1.code || typeof asset1.code !== "string") {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "Asset 1 code must be a non-empty string",
-    );
-  }
+  const validation1 = validateTokenAsset(asset1);
+  if (validation1.status === "error") return validation1;
 
-  if (!asset2.code || typeof asset2.code !== "string") {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "Asset 2 code must be a non-empty string",
-    );
-  }
+  const validation2 = validateTokenAsset(asset2);
+  if (validation2.status === "error") return validation2;
 
-  // Check if assets are the same
-  if (asset1.code === asset2.code && asset1.issuer === asset2.issuer) {
+  if (isSameAsset(asset1, asset2)) {
     return err(
       SorokitErrorCode.INVALID_CONFIG,
       "Cannot create a pair with the same asset",
     );
   }
 
-  // Generate a consistent ID (alphabetical by code)
-  const sortedAssets = [asset1, asset2].sort((a, b) => 
-    a.code.localeCompare(b.code)
-  );
-  
-  const id = `${sortedAssets[0]?.code}/${sortedAssets[1]?.code}`;
+  const id = normalizePairId(asset1, asset2);
+
+  if (existingPairIds.has(id)) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Pair ${id} already exists`,
+    );
+  }
+
+  existingPairIds.add(id);
 
   const pair: AssetPair = {
     base: asset1,
@@ -92,6 +95,24 @@ export function createAssetPair(
   };
 
   return ok(pair);
+}
+
+/**
+ * Check if a pair already exists for the given assets.
+ */
+export function hasExistingPair(
+  asset1: SwapRouteAsset,
+  asset2: SwapRouteAsset,
+): boolean {
+  const id = normalizePairId(asset1, asset2);
+  return existingPairIds.has(id);
+}
+
+/**
+ * Reset the pair registry (useful for testing).
+ */
+export function resetPairRegistry(): void {
+  existingPairIds.clear();
 }
 
 /**
@@ -202,7 +223,7 @@ export async function getTradingPaths(
   destination: SwapRouteAsset,
   maxHops = 3,
 ): Promise<SorokitResult<SwapRoute[]>> {
-  if (source.code === destination.code && source.issuer === destination.issuer) {
+  if (isSameAsset(source, destination)) {
     return err(
       SorokitErrorCode.INVALID_CONFIG,
       "Source and destination assets cannot be the same",
