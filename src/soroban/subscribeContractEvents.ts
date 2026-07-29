@@ -19,6 +19,7 @@ export interface ContractEventSubscriptionOptions {
   horizonUrl: string;
   intervalMs?: number;
   fetch?: typeof fetch;
+  limit?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,7 +37,7 @@ function readEventRecord(raw: unknown): ContractEvent | null {
 
   return {
     ...(raw as Record<string, unknown>),
-    id: String(raw.id ?? raw.event_id ?? raw.eventId ?? ""),
+    id: String(raw.id ?? raw.event_id ?? raw.eventId ?? raw.paging_token ?? ""),
     contractId: String(raw.contractId ?? raw.contract_id ?? raw.contractID ?? ""),
     name: String(raw.name ?? raw.event_type ?? raw.eventType ?? ""),
     topics,
@@ -158,6 +159,83 @@ export function subscribeContractEvents(
   };
 }
 
+/**
+ * Stream Soroban contract events as an async generator.
+ *
+ * Polls the Horizon endpoint at a configurable interval and yields new events
+ * as they arrive. Deduplicates by event ID so the same event is never yielded
+ * twice. The generator runs until the provided `AbortSignal` is aborted or the
+ * caller breaks out of the `for await` loop.
+ *
+ * This is the generator-based counterpart of `subscribeContractEvents()` and
+ * is more ergonomic when using `for await...of` loops.
+ *
+ * @param contractId - Soroban contract address to monitor.
+ * @param filter     - Optional filter criteria (name, topicPatterns, contractId).
+ * @param options    - Horizon URL, polling interval, and optional fetch override.
+ * @param signal     - Optional AbortSignal to stop the stream externally.
+ * @yields Arrays of new `ContractEvent` objects as they are detected.
+ *
+ * @example
+ * const ac = new AbortController();
+ * setTimeout(() => ac.abort(), 30_000);
+ * for await (const events of streamContractEvents("C123", undefined, { horizonUrl }, ac.signal)) {
+ *   console.log("new events:", events);
+ * }
+ */
+export async function* streamContractEvents(
+  contractId: string,
+  filter: ContractEventFilter | undefined,
+  options: ContractEventSubscriptionOptions,
+  signal?: AbortSignal,
+): AsyncGenerator<ContractEvent[]> {
+  const intervalMs = options.intervalMs ?? 1500;
+  const requestFetch = options.fetch ?? fetch;
+  const seenEventIds = new Set<string>();
+
+  while (!signal?.aborted) {
+    try {
+      const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/ledgers`);
+      endpoint.searchParams.set("order", "desc");
+      endpoint.searchParams.set("limit", "1");
+
+      const response = await requestFetch(endpoint.toString());
+      if (response.ok) {
+        const payload = await response.json();
+        const events = readRecords(payload)
+          .filter((event) => {
+            const eventContractId = typeof event.contractId === "string" ? event.contractId : "";
+            return eventContractId === contractId;
+          })
+          .filter((event) => matchesFilter(event, filter));
+
+        const newEvents = events.filter((event) => {
+          const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
+          if (!id || seenEventIds.has(id)) return false;
+          seenEventIds.add(id);
+          return true;
+        });
+
+        if (newEvents.length > 0) {
+          yield newEvents;
+        }
+      }
+    } catch {
+      // Ignore transient polling failures and continue the stream.
+    }
+
+    if (signal?.aborted) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, intervalMs);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+  }
+}
+
 export async function queryContractEvents(
   contractId: string,
   filter?: ContractEventFilter,
@@ -166,9 +244,13 @@ export async function queryContractEvents(
   const requestFetch = options?.fetch ?? globalThis.fetch;
 
   try {
-    const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/events`);
+    const horizonUrl = options?.horizonUrl ?? "https://horizon-testnet.stellar.org";
+    const endpoint = new URL(`${horizonUrl.replace(/\/$/, "")}/events`);
     endpoint.searchParams.set("contractId", contractId);
     endpoint.searchParams.set("order", "desc");
+    if (options?.limit !== undefined) {
+      endpoint.searchParams.set("limit", String(options.limit));
+    }
 
     const response = await requestFetch(endpoint.toString());
     if (!response.ok) {

@@ -79,6 +79,9 @@ export {
   buildPathPayment,
   buildAtomicSwap,
   buildAccountMerge,
+  checkTrustlines,
+  buildBulkTrustlines,
+  clearSequenceCache,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
@@ -91,11 +94,20 @@ export {
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
 export { validateTransaction } from "./validateTransaction";
+export { validateTransactionOffline } from "./validateTransactionOffline";
+export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "./transactionContext";
 export type { TransactionBuilderContext } from "./transactionContext";
+export {
+  createTransactionBuilder,
+} from "./transactionBuilder";
+export type {
+  TransactionBuilder,
+  TransactionOperation,
+} from "./transactionBuilder";
 export type {
   TransactionResult,
   TransactionStatus,
@@ -113,11 +125,33 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
+  CongestionFeeEstimate,
 } from "./estimateFee";
+export { fetchCongestionFeeEstimate } from "./estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+} from "./pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./pathPayment";
 export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export {
+  queryTransactionHistory,
+} from "./queryTransactionHistory";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./queryTransactionHistory";
 export type {
   ExportFormat,
   ExportedTransaction,
@@ -146,17 +180,58 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
-export { FeeCalculator } from "./feeCalculator";
+
+// ─── Webhook support (#208) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  verifySignature,
+} from "./webhooks";
 export type {
-  FeeBreakdown,
-  FeeComponent,
-  FeeComponentTiers,
-  FeeComparisonItem,
-  FeeCalculatorListener,
-  FeeCalculatorUnsubscribe,
-  FeeCalculatorConfig,
-  FeeBreakdownFallback,
-} from "./feeCalculator";
+  WebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+} from "./webhooks";
+
+// ─── Asset pair trading logic (#209) ───────────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+} from "./assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./assetPairs";
+export {
+  buildMultiSigEnvelope,
+  collectSignature,
+  validateMultiSigThreshold,
+} from "./multiSig";
+export type {
+  MultiSigSigner,
+  MultiSigEnvelopeParams,
+  MultiSigEnvelope,
+} from "./types";
+export {
+  saveTransactionTemplate,
+  loadTemplate,
+  listTransactionTemplates,
+  deleteTransactionTemplate,
+  clearTransactionTemplates,
+  InMemoryTransactionTemplateStore,
+} from "./templates";
+export type {
+  TransactionTemplate,
+  TransactionTemplateKind,
+  TransactionTemplateStore,
+  TemplateParamValue,
+} from "./templates";
 // ─── Asset constants and factories ───────────────────────────────────────────
 export const USDC_MAINNET_ISSUER =
   "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -184,3 +259,58 @@ export function usdtAsset(issuer?: string): Asset {
 export function eurcAsset(issuer?: string): Asset {
   return new Asset("EURC", issuer || EURC_MAINNET_ISSUER);
 }
+
+// ─── Cross-network fee comparison ─────────────────────────────────────────────
+
+import { estimateFee } from "./estimateFee";
+import type { FeeEstimate, FeeEstimateInput } from "./estimateFee";
+import type { SorokitResult } from "../shared/response";
+import type { ResolvedNetworkConfig } from "../shared/types";
+
+export interface NetworkFeeResult {
+  network: string;
+  estimate: SorokitResult<FeeEstimate>;
+}
+
+/**
+ * Compare estimated fees for the same transaction across multiple networks.
+ *
+ * Simulates the transaction on each network concurrently and returns the fee
+ * estimate (or error) for each one, so callers can see the cost difference
+ * between e.g. mainnet and testnet before submitting.
+ *
+ * @param transaction - The transaction to estimate fees for (XDR or payment description).
+ * @param networks    - Array of resolved network configs to compare against.
+ * @returns An array of `{ network, estimate }` entries in the same order as `networks`.
+ *
+ * @example
+ * const results = await compareFeeAcrossNetworks(
+ *   { kind: "xdr", transactionXdr: myXdr },
+ *   [mainnetConfig, testnetConfig],
+ * );
+ * for (const { network, estimate } of results) {
+ *   if (estimate.status === "ok") console.log(network, estimate.data.fee);
+ * }
+ */
+export async function compareFeeAcrossNetworks(
+  transaction: FeeEstimateInput,
+  networks: ResolvedNetworkConfig[],
+): Promise<NetworkFeeResult[]> {
+  const results = await Promise.all(
+    networks.map(async (networkConfig) => {
+      const estimate = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        transaction,
+      );
+      return { network: networkConfig.network, estimate };
+    }),
+  );
+  return results;
+}
+
+// NOTE: Transaction pre-flight simulation uses the Soroban RPC server
+// and therefore lives in src/soroban/simulateTransaction.ts.
+// It can be accessed via client.soroban.simulate().
+

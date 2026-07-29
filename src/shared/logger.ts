@@ -1,20 +1,7 @@
-/**
- * Structured logger for sorokit-core.
- *
- * Off by default. Consumers opt in by passing `logLevel` to createSorokitClient().
- * The logger never writes to a global sink — it is scoped to the client instance.
- */
-
-import type { SorokitResult } from "./response";
-import { attachTraceId } from "./response";
-
 export type LogLevel = "off" | "debug" | "info" | "warn" | "error";
 
-export interface StructuredLogMeta extends Record<string, unknown> {
-  operation?: string;
-  status?: "start" | "ok" | "error";
-  errorCode?: string;
-  errorMessage?: string;
+export interface StructuredLogMeta {
+  [key: string]: unknown;
 }
 
 export interface SorokitLogger {
@@ -22,154 +9,203 @@ export interface SorokitLogger {
   info(message: string, meta?: StructuredLogMeta): void;
   warn(message: string, meta?: StructuredLogMeta): void;
   error(message: string, meta?: StructuredLogMeta): void;
-  /** Optional correlation ID carried by this logger instance. */
+}
+
+export interface TracedLogger extends SorokitLogger {
   readonly traceId?: string;
+  readonly spanId?: string;
 }
 
-export interface LoggerConfig {
-  /** Minimum log level to emit. Default: "off" */
+export interface LoggerOptions {
   logLevel?: LogLevel;
-  /**
-   * Enable debug logging. Equivalent to `logLevel: "debug"`.
-   * @deprecated Prefer `logLevel: "debug"`
-   */
   debug?: boolean;
-  /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
+  /**
+   * Prefix prepended to every console log line for the built-in logger.
+   * Defaults to `"[sorokit]"`. Ignored when a custom `logger` is provided.
+   * Useful for distinguishing multiple client instances (e.g. `"[sorokit:testnet]"`).
+   */
+  prefix?: string;
 }
 
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   off: 0,
-  debug: 1,
-  info: 2,
-  warn: 3,
-  error: 4,
+  error: 1,
+  warn: 2,
+  info: 3,
+  debug: 4,
 };
-
-/** No-op logger — used when logging is off */
-const noopLogger: SorokitLogger = {
-  debug: () => undefined,
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-};
-
-function resolveLogLevel(config?: LoggerConfig | boolean): LogLevel {
-  if (typeof config === "boolean") {
-    return config ? "debug" : "off";
-  }
-  if (config?.logger) {
-    return config.logLevel ?? (config.debug ? "debug" : "off");
-  }
-  if (config?.logLevel) return config.logLevel;
-  if (config?.debug) return "debug";
-  return "off";
-}
-
-function formatStructuredEntry(
-  level: LogLevel,
-  message: string,
-  meta?: StructuredLogMeta,
-): Record<string, unknown> {
-  return {
-    timestamp: new Date().toISOString(),
-    level,
-    message,
-    ...meta,
-  };
-}
-
-/** Console logger with level filtering and structured output */
-function createConsoleLogger(
-  minLevel: LogLevel,
-  prefix = "[sorokit]",
-): SorokitLogger {
-  const shouldLog = (msgLevel: LogLevel): boolean =>
-    minLevel !== "off" && LEVEL_PRIORITY[msgLevel] >= LEVEL_PRIORITY[minLevel];
-
-  const write =
-    (
-      msgLevel: LogLevel,
-      consoleFn: (message?: unknown, ...optionalParams: unknown[]) => void,
-    ) =>
-    (message: string, meta?: StructuredLogMeta): void => {
-      if (!shouldLog(msgLevel)) return;
-      const entry = formatStructuredEntry(msgLevel, message, meta);
-      consoleFn(prefix, entry);
-    };
-
-  return {
-    debug: write("debug", console.debug),
-    info: write("info", console.info),
-    warn: write("warn", console.warn),
-    error: write("error", console.error),
-  };
-}
 
 /**
- * Wrap a logger so every emitted entry carries the given trace ID, and expose
- * the trace ID on the returned logger (read by {@link withLogging} to stamp
- * error results). The original logger is left untouched.
+ * Remove query parameters and fragments from a URL before it is written to a
+ * log. The original URL is never modified; this function only returns the
+ * value suitable for logging.
  */
+export function sanitizeUrlForLogging(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    // URL values supplied to the client are validated before use. Keep this
+    // fallback defensive for callers using the logger directly.
+    const queryIndex = url.search(/[?#]/);
+    return queryIndex === -1 ? url : url.slice(0, queryIndex);
+  }
+}
+
+export function sanitizeLogMeta(meta?: StructuredLogMeta): StructuredLogMeta | undefined {
+  if (!meta) return undefined;
+
+  const sanitized: StructuredLogMeta = { ...meta };
+  for (const key of ["horizonUrl", "rpcUrl"]) {
+    const value = sanitized[key];
+    if (typeof value === "string") {
+      sanitized[key] = sanitizeUrlForLogging(value);
+    }
+  }
+  return sanitized;
+}
+
+function createConsoleLogger(prefix = "[sorokit]"): SorokitLogger {
+  return {
+    debug: (message, meta) =>
+      console.debug(prefix, {
+        level: "debug",
+        message,
+        ...meta,
+        timestamp: new Date().toISOString(),
+      }),
+    info: (message, meta) =>
+      console.info(prefix, {
+        level: "info",
+        message,
+        ...meta,
+        timestamp: new Date().toISOString(),
+      }),
+    warn: (message, meta) =>
+      console.warn(prefix, {
+        level: "warn",
+        message,
+        ...meta,
+        timestamp: new Date().toISOString(),
+      }),
+    error: (message, meta) =>
+      console.error(prefix, {
+        level: "error",
+        message,
+        ...meta,
+        timestamp: new Date().toISOString(),
+      }),
+  };
+}
+
+function createNoopLogger(): SorokitLogger {
+  return {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+  };
+}
+
+function createLevelLogger(level: LogLevel, sink: SorokitLogger): SorokitLogger {
+  const threshold = LOG_LEVEL_PRIORITY[level];
+  const enabled = (methodLevel: Exclude<LogLevel, "off">): boolean =>
+    threshold >= LOG_LEVEL_PRIORITY[methodLevel];
+
+  return {
+    debug: (message, meta) => {
+      if (enabled("debug")) sink.debug(message, sanitizeLogMeta(meta));
+    },
+    info: (message, meta) => {
+      if (enabled("info")) sink.info(message, sanitizeLogMeta(meta));
+    },
+    warn: (message, meta) => {
+      if (enabled("warn")) sink.warn(message, sanitizeLogMeta(meta));
+    },
+    error: (message, meta) => {
+      if (enabled("error")) sink.error(message, sanitizeLogMeta(meta));
+    },
+  };
+}
+
+/** Create a level-filtered logger. Logging is disabled by default. */
+export function createLogger(options?: LoggerOptions): SorokitLogger {
+  const level: LogLevel = options?.logLevel ?? (options?.debug ? "debug" : "off");
+  if (level === "off") return createNoopLogger();
+  const sink = options?.logger ?? createConsoleLogger(options?.prefix);
+  return createLevelLogger(level, sink);
+}
+
+/** Add trace identifiers to all entries emitted by a logger. */
 export function createTracedLogger(
   logger: SorokitLogger,
-  traceId: string,
-): SorokitLogger {
+  traceContext: string | { traceId?: string; spanId?: string } | null | undefined,
+): TracedLogger {
+  const normalizedContext =
+    typeof traceContext === "string" ? { traceId: traceContext } : traceContext;
+  const traceMeta: StructuredLogMeta = {};
+  if (normalizedContext?.traceId !== undefined) traceMeta.traceId = normalizedContext.traceId;
+  if (normalizedContext?.spanId !== undefined) traceMeta.spanId = normalizedContext.spanId;
+
+  const withTrace = (meta?: StructuredLogMeta): StructuredLogMeta => ({ ...traceMeta, ...meta });
   return {
-    traceId,
-    debug: (message, meta) => logger.debug(message, { traceId, ...meta }),
-    info: (message, meta) => logger.info(message, { traceId, ...meta }),
-    warn: (message, meta) => logger.warn(message, { traceId, ...meta }),
-    error: (message, meta) => logger.error(message, { traceId, ...meta }),
+    ...(normalizedContext?.traceId !== undefined ? { traceId: normalizedContext.traceId } : {}),
+    ...(normalizedContext?.spanId !== undefined ? { spanId: normalizedContext.spanId } : {}),
+    debug: (message, meta) => logger.debug(message, withTrace(meta)),
+    info: (message, meta) => logger.info(message, withTrace(meta)),
+    warn: (message, meta) => logger.warn(message, withTrace(meta)),
+    error: (message, meta) => logger.error(message, withTrace(meta)),
   };
 }
 
-/**
- * Create a logger instance.
- * Pass a custom implementation to redirect logs to your own sink.
- */
-export function createLogger(
-  config?: LoggerConfig | boolean,
-  custom?: SorokitLogger,
-): SorokitLogger {
-  if (custom) return custom;
-  if (typeof config === "object" && config?.logger) return config.logger;
-
-  const logLevel = resolveLogLevel(config);
-  if (logLevel === "off") return noopLogger;
-  return createConsoleLogger(logLevel);
-}
-
-/**
- * Log the start and result of an async SDK operation.
- * Emits debug on start, info on success, warn on handled errors.
- */
+/** Log the start and completion of an asynchronous operation. */
 export async function withLogging<T>(
-  logger: SorokitLogger,
+  logger: TracedLogger,
   operation: string,
-  context: Record<string, unknown> | undefined,
-  fn: () => Promise<SorokitResult<T>>,
-): Promise<SorokitResult<T>> {
-  logger.debug(operation, { operation, status: "start", ...context });
-
-  const raw = await fn();
-  // Stamp the logger's trace ID onto error results so callers can correlate
-  // failures with the logged operation chain.
-  const result =
-    logger.traceId !== undefined ? attachTraceId(raw, logger.traceId) : raw;
-
-  if (result.status === "ok") {
-    logger.info(operation, { operation, status: "ok", ...context });
-  } else {
-    logger.warn(operation, {
+  meta: StructuredLogMeta,
+  fn: () => Promise<T>,
+): Promise<T> {
+  logger.debug(operation, { ...meta, operation, status: "start" });
+  try {
+    const result = await fn();
+    const resultStatus =
+      typeof result === "object" && result !== null && "status" in result
+        ? (result as { status?: unknown }).status
+        : undefined;
+    const statusMeta = {
+      ...meta,
+      operation,
+      status: resultStatus === "error" ? "error" : "ok",
+    };
+    if (resultStatus === "error" && typeof result === "object" && result !== null && "error" in result) {
+      const errorResult = result as unknown as {
+        status: "error";
+        data: null;
+        error: { code: string; message: string; traceId?: string };
+      };
+      logger.error(operation, {
+        ...statusMeta,
+        errorCode: errorResult.error.code,
+        errorMessage: errorResult.error.message,
+      });
+      if (logger.traceId !== undefined && errorResult.error.traceId === undefined) {
+        return {
+          ...errorResult,
+          error: { ...errorResult.error, traceId: logger.traceId },
+        } as T;
+      }
+      return result;
+    }
+    logger.debug(operation, statusMeta);
+    return result;
+  } catch (cause) {
+    logger.error(operation, {
+      ...meta,
       operation,
       status: "error",
-      errorCode: result.error.code,
-      errorMessage: result.error.message,
-      traceId: result.error.traceId,
-      ...context,
+      errorMessage: cause instanceof Error ? cause.message : String(cause),
     });
+    throw cause;
   }
-
-  return result;
 }

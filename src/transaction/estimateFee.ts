@@ -22,6 +22,7 @@ import {
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
@@ -54,6 +55,29 @@ export interface FeeEstimate {
   surge?: boolean;
   /** Fee tiers based on recent network congestion. Present only when includeTiers is true. */
   tiers?: FeeTiers;
+  /**
+   * Congestion-aware fee recommendations derived from the last 100 network
+   * transactions. Present only when `includeCongestionEstimate` is true.
+   */
+  congestion?: CongestionFeeEstimate;
+}
+
+/**
+ * Congestion-aware fee estimate derived from the median fees of the last 100
+ * network transactions (issue #193).
+ *
+ * - `minFee`         — 10th-percentile of recent fees; acceptable during low load.
+ * - `recommendedFee` — 50th-percentile (median); reliable under typical load.
+ * - `maxFee`         — 90th-percentile; prioritised inclusion during congestion.
+ * - `congestionLevel`— qualitative label derived from the ratio of the current
+ *                      fee estimate to the recent median.
+ */
+export interface CongestionFeeEstimate {
+  minFee: string;
+  recommendedFee: string;
+  maxFee: string;
+  /** "low" | "medium" | "high" based on estimated fee vs. recent median */
+  congestionLevel: "low" | "medium" | "high";
 }
 
 /** Optional hooks and cache for fee estimation. */
@@ -64,7 +88,15 @@ export interface FeeEstimateOptions {
   onFeeSurge?: (estimate: FeeEstimate) => void;
   /** When true, fetches recent transaction fees from Horizon and adds tier recommendations */
   includeTiers?: boolean;
+  /**
+   * When true, fetches the last 100 network transactions to compute
+   * congestion-aware min/recommended/max fees (issue #193).
+   */
+  includeCongestionEstimate?: boolean;
 }
+
+/** Number of recent transactions fetched to compute congestion-aware percentiles. */
+const CONGESTION_TX_LIMIT = 100;
 
 /**
  * Input for fee estimation.
@@ -92,6 +124,9 @@ export type FeeEstimateInput =
 
 /** Cache key for fee tiers derived from recent Horizon transactions. */
 export const FEE_TIERS_CACHE_KEY = "sorokit:fee-tiers";
+
+/** Cache key for congestion-aware fee estimate. */
+export const CONGESTION_FEE_CACHE_KEY = "sorokit:congestion-fee-estimate";
 
 /** Number of recent transactions fetched to compute fee tier percentiles. */
 const FEE_TIERS_TX_LIMIT = 50;
@@ -136,7 +171,7 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const page = await server.transactions().order("desc").limit(FEE_TIERS_TX_LIMIT).call();
 
     const fees = page.records.map(
@@ -153,6 +188,82 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Fetch the last `CONGESTION_TX_LIMIT` transactions from Horizon to compute
+ * a congestion-aware fee estimate (issue #193).
+ *
+ * Returns `minFee` (p10), `recommendedFee` (p50), and `maxFee` (p90) plus a
+ * qualitative `congestionLevel` label based on the ratio of the current
+ * simulated fee to the recent median.
+ */
+export async function fetchCongestionFeeEstimate(
+  horizonUrl: string,
+  currentFeeStroops: number,
+  cache?: SorokitCache,
+): Promise<CongestionFeeEstimate> {
+  const base = parseInt(BASE_FEE, 10);
+  const fallback: CongestionFeeEstimate = {
+    minFee: String(base),
+    recommendedFee: String(base),
+    maxFee: String(base),
+    congestionLevel: "low",
+  };
+
+  if (cache) {
+    const cached = cache.get(CONGESTION_FEE_CACHE_KEY);
+    if (cached != null) {
+      // Re-compute the congestionLevel from the fresh simulated fee
+      const c = cached as CongestionFeeEstimate;
+      const median = parseInt(c.recommendedFee, 10);
+      return { ...c, congestionLevel: deriveCongestionLevel(currentFeeStroops, median) };
+    }
+  }
+
+  try {
+    const server = createHorizonServer(horizonUrl);
+    const page = await server
+      .transactions()
+      .order("desc")
+      .limit(CONGESTION_TX_LIMIT)
+      .call();
+
+    const fees = page.records
+      .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
+      .filter((f) => Number.isFinite(f) && f > 0);
+
+    const tiers = calculateFeeTiers(fees);
+    const median = parseInt(tiers.standard, 10);
+
+    const estimate: CongestionFeeEstimate = {
+      minFee: tiers.economy,
+      recommendedFee: tiers.standard,
+      maxFee: tiers.fast,
+      congestionLevel: deriveCongestionLevel(currentFeeStroops, median),
+    };
+
+    if (cache) {
+      // Cache without the dynamic congestionLevel so future callers recompute it
+      const toCache: CongestionFeeEstimate = { ...estimate };
+      cache.set(CONGESTION_FEE_CACHE_KEY, toCache, DEFAULT_FEE_CACHE_TTL_MS);
+    }
+
+    return estimate;
+  } catch {
+    return fallback;
+  }
+}
+
+function deriveCongestionLevel(
+  currentFeeStroops: number,
+  medianFeeStroops: number,
+): "low" | "medium" | "high" {
+  if (medianFeeStroops <= 0) return "low";
+  const ratio = currentFeeStroops / medianFeeStroops;
+  if (ratio >= 2) return "high";
+  if (ratio >= 1.2) return "medium";
+  return "low";
 }
 
 function describeFeeEstimateFailure(cause: unknown): string {
@@ -233,7 +344,7 @@ export async function estimateFee(
     } else {
       // Build a minimal sample payment transaction to simulate
       const { publicKey, destination, amount, assetCode, assetIssuer } = input;
-      const horizonServer = new Horizon.Server(horizonUrl);
+      const horizonServer = createHorizonServer(horizonUrl);
       const sourceAccount = await horizonServer.loadAccount(publicKey);
 
       let asset: Asset;
@@ -277,7 +388,7 @@ export async function estimateFee(
     }
 
     // Simulate via Soroban RPC
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(xdr, networkConfig.networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
 
@@ -285,14 +396,14 @@ export async function estimateFee(
     let simulated = true;
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
+      // minResourceFee already includes inclusion fee; no extra BASE_FEE is added.
       feeStroops = parseInt(simResult.minResourceFee ?? BASE_FEE, 10);
-      // Add base fee on top of resource fee for total
-      feeStroops += parseInt(BASE_FEE, 10);
     } else if (SorobanRpc.Api.isSimulationError(simResult)) {
-      // Simulation failed — fall back to base fee
+      // Simulation failed. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     } else {
+      // Simulation unavailable. Fall back to BASE_FEE as the floor.
       feeStroops = parseInt(BASE_FEE, 10);
       simulated = false;
     }
@@ -308,6 +419,14 @@ export async function estimateFee(
 
     if (options?.includeTiers) {
       feeEstimate.tiers = await fetchFeeTiers(horizonUrl, options?.cache ?? cache);
+    }
+
+    if (options?.includeCongestionEstimate) {
+      feeEstimate.congestion = await fetchCongestionFeeEstimate(
+        horizonUrl,
+        feeStroops,
+        options?.cache ?? cache,
+      );
     }
 
     const medianCache = options?.cache ?? cache;

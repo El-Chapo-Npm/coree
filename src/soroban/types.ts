@@ -2,6 +2,12 @@
  * Soroban module public types.
  */
 import type { xdr } from "@stellar/stellar-sdk";
+import type { ContractStateTracker } from "./contractStateTracker";
+export type { ContractStateTracker };
+import {
+  DEFAULT_POLL_MAX_ATTEMPTS,
+  DEFAULT_POLL_INTERVAL_MS,
+} from "../shared/constants";
 
 export interface ContractMethodInput {
   name: string;
@@ -45,6 +51,8 @@ export interface ContractInvokeParams {
   cachedMetadata?: ContractMethod[];
   /** Optional ABI used to validate method name and argument count before simulation */
   contractAbi?: ContractAbi;
+  /** Optional tracker for cache invalidation based on contract state changes */
+  stateTracker?: ContractStateTracker;
   /** Public key of the invoking account */
   publicKey: string;
 }
@@ -63,6 +71,8 @@ export interface ContractReadParams {
   publicKey: string;
   /** Optional cache for contract read results */
   cache?: import("../shared/cache").SorokitCache;
+  /** Optional tracker for cache invalidation based on contract state changes */
+  stateTracker?: ContractStateTracker;
   /** Optional TTL for cache entries in milliseconds (default: 5 minutes) */
   ttlMs?: number;
 }
@@ -85,9 +95,15 @@ export interface PreparedContractCall {
  * Configuration for the polling loop in invokeContract().
  */
 export interface SorobanPollConfig {
-  /** Maximum number of polling attempts before giving up. Default: 20 */
+  /**
+   * Maximum number of polling attempts before giving up.
+   * @default DEFAULT_POLL_MAX_ATTEMPTS (20)
+   */
   maxAttempts?: number;
-  /** Milliseconds between polling attempts. Default: 1500 */
+  /**
+   * Milliseconds between polling attempts.
+   * @default DEFAULT_POLL_INTERVAL_MS (1500)
+   */
   intervalMs?: number;
 }
 
@@ -112,6 +128,7 @@ export interface BatchContractInvocation {
   publicKey: string;
   cachedMetadata?: ContractMethod[];
   contractAbi?: ContractAbi;
+  stateTracker?: ContractStateTracker;
 }
 
 /** Result for one invocation within a batch — preserves contractId and method for correlation. */

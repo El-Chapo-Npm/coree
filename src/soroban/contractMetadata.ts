@@ -1,10 +1,11 @@
-import { Contract, cereal, rpc as SorobanRpc, xdr } from "@stellar/stellar-sdk";
+import { Contract, cereal, xdr } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_CONTRACT_METADATA_TTL_MS } from "../shared/constants";
 import { toMessage } from "../shared";
 import type { ContractMethod } from "./types";
+import { createSorobanServer } from "../shared/serverFactory";
 
 const SPEC_SECTION_NAME = "contractspecv0";
 
@@ -20,6 +21,7 @@ interface ContractMetadataOptions {
 }
 
 const memoryCache = new Map<string, MetadataCacheEntry>();
+const MAX_MEMORY_CACHE_ENTRIES = 100;
 
 function metadataCacheKey(contractId: string): string {
   return `sorokit:contract-metadata:${contractId}`;
@@ -55,7 +57,27 @@ function setCachedMethods(
   const entry: MetadataCacheEntry = { methods, expiresAt };
 
   options?.cache?.set(key, entry, ttlMs);
+
+  // Enforce memory cache size limit
+  if (!memoryCache.has(key) && memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value as string | undefined;
+    if (oldestKey) memoryCache.delete(oldestKey);
+  }
+
   memoryCache.set(key, entry);
+}
+
+/**
+ * Manually invalidate cached metadata for a contract ID.
+ * Clears both the in-memory cache and an optional external cache.
+ */
+export function invalidateContractCache(
+  contractId: string,
+  cache?: SorokitCache,
+): void {
+  const key = metadataCacheKey(contractId);
+  memoryCache.delete(key);
+  cache?.invalidate(key);
 }
 
 function isMetadataCacheEntry(value: unknown): value is MetadataCacheEntry {
@@ -278,6 +300,61 @@ function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+// ─── Schema types ─────────────────────────────────────────────────────────────
+
+/**
+ * Typed parameter descriptor within a contract method schema.
+ * (issue #206)
+ */
+export interface ContractMethodParam {
+  name: string;
+  type: string;
+}
+
+/**
+ * Full typed signature for a single contract method.
+ * (issue #206)
+ */
+export interface ContractMethodSchema {
+  name: string;
+  params: ContractMethodParam[];
+  returnType: string | null;
+}
+
+/**
+ * The complete parsed ABI schema for a contract.
+ * (issue #206)
+ */
+export interface ContractSchema {
+  contractId: string;
+  methods: ContractMethodSchema[];
+}
+
+// ─── Schema cache (in-memory, keyed by contractId) ────────────────────────────
+
+const schemaCache = new Map<string, { schema: ContractSchema; expiresAt: number }>();
+
+function schemaCacheKey(contractId: string): string {
+  return `sorokit:contract-schema:${contractId}`;
+}
+
+function getCachedSchema(contractId: string, now: number): ContractSchema | null {
+  const entry = schemaCache.get(schemaCacheKey(contractId));
+  if (!entry) return null;
+  if (entry.expiresAt > now) return entry.schema;
+  schemaCache.delete(schemaCacheKey(contractId));
+  return null;
+}
+
+function setCachedSchema(
+  contractId: string,
+  schema: ContractSchema,
+  ttlMs: number,
+  now: number,
+): void {
+  schemaCache.set(schemaCacheKey(contractId), { schema, expiresAt: now + ttlMs });
+}
+
 export async function getContractMethods(
   rpcUrl: string,
   contractId: string,
@@ -288,9 +365,9 @@ export async function getContractMethods(
   if (cached) return ok(cached);
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
+    const rpc = createSorobanServer(rpcUrl);
     const contract = new Contract(contractId);
-    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint());
+    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
     const instanceEntry = instanceResult.entries[0];
 
     if (!instanceEntry) {
@@ -310,7 +387,7 @@ export async function getContractMethods(
     const codeKey = xdr.LedgerKey.contractCode(
       new xdr.LedgerKeyContractCode({ hash: wasmHashResult.data }),
     );
-    const codeResult = await rpc.getLedgerEntries(codeKey);
+    const codeResult = await rpc.getLedgerEntries(codeKey as any);
     const codeEntry = codeResult.entries[0];
 
     if (!codeEntry) {
@@ -349,3 +426,104 @@ export const contractMetadataInternals = {
   parseContractMethodsFromWasm,
   readContractSpecSection,
 };
+
+/**
+ * Fetch, parse, and cache the typed ABI schema for a contract.
+ *
+ * Returns a `ContractSchema` containing every method with its full typed
+ * parameter list and return type. Results are cached using the same dual-layer
+ * strategy as `getContractMethods` (in-memory LRU + optional external cache).
+ *
+ * Use `validateContractArgs` to check user-supplied arguments against the
+ * schema before passing them to `invokeContract`.
+ *
+ * @param rpcUrl     - Base URL of the Soroban RPC server.
+ * @param contractId - Stellar contract address (C...).
+ * @param options    - Optional cache, TTL, and clock override.
+ * @returns `ok(ContractSchema)` on success, or a `CONTRACT_READ_FAILED` error.
+ *
+ * (issue #206)
+ */
+export async function parseContractSchema(
+  rpcUrl: string,
+  contractId: string,
+  options?: ContractMetadataOptions,
+): Promise<SorokitResult<ContractSchema>> {
+  const now = options?.now?.() ?? Date.now();
+  const ttlMs = options?.ttlMs ?? DEFAULT_CONTRACT_METADATA_TTL_MS;
+
+  // Check external cache first
+  const extKey = schemaCacheKey(contractId);
+  const extCached = options?.cache?.get(extKey);
+  if (extCached && isContractSchema(extCached)) {
+    return ok(extCached);
+  }
+
+  // Check in-memory cache
+  const memoryCached = getCachedSchema(contractId, now);
+  if (memoryCached) return ok(memoryCached);
+
+  // Fetch raw methods (reuses the metadata cache internally)
+  const methodsResult = await getContractMethods(rpcUrl, contractId, options);
+  if (methodsResult.status === "error") return methodsResult;
+
+  const schema: ContractSchema = {
+    contractId,
+    methods: methodsResult.data.map((m) => ({
+      name: m.name,
+      params: m.inputs.map((inp) => ({ name: inp.name, type: inp.type })),
+      returnType: m.returnType,
+    })),
+  };
+
+  // Persist to both caches
+  setCachedSchema(contractId, schema, ttlMs, now);
+  options?.cache?.set(extKey, schema, ttlMs);
+
+  return ok(schema);
+}
+
+function isContractSchema(value: unknown): value is ContractSchema {
+  if (!value || typeof value !== "object") return false;
+  const s = value as Partial<ContractSchema>;
+  return typeof s.contractId === "string" && Array.isArray(s.methods);
+}
+
+/**
+ * Validate user-supplied arguments against a parsed `ContractMethodSchema`.
+ *
+ * Checks:
+ * - the method exists in the schema
+ * - the number of provided ScVal arguments matches the expected param count
+ *
+ * Returns `ok(void)` when valid, or a `CONTRACT_PREPARE_FAILED` error
+ * describing the mismatch.
+ *
+ * @param schema    - Schema returned by `parseContractSchema`.
+ * @param method    - Name of the method to validate against.
+ * @param argCount  - Number of arguments the caller intends to pass.
+ *
+ * (issue #206)
+ */
+export function validateContractArgs(
+  schema: ContractSchema,
+  method: string,
+  argCount: number,
+): SorokitResult<void> {
+  const methodSchema = schema.methods.find((m) => m.name === method);
+  if (!methodSchema) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Method "${method}" not found in schema for contract ${schema.contractId}. Available: ${schema.methods.map((m) => m.name).join(", ")}`,
+    );
+  }
+
+  if (methodSchema.params.length !== argCount) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Method "${method}" expects ${methodSchema.params.length} argument(s) [${methodSchema.params.map((p) => `${p.name}: ${p.type}`).join(", ")}], but ${argCount} were provided.`,
+    );
+  }
+
+  return ok(undefined);
+}

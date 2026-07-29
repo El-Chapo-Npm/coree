@@ -4,6 +4,7 @@ import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
 import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fetch the current status of a submitted transaction by its hash.
@@ -38,17 +39,22 @@ export async function getTransactionStatus(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const server = createHorizonServer(horizonUrl);
     const tx = await server.transactions().transaction(hash).call();
+
+    // Horizon reports ledger_attr as 0 (or omits it) for a transaction that has
+    // been submitted but not yet included in a ledger — treat that as "pending"
+    // rather than surfacing a meaningless ledger number.
+    const isPending = !tx.ledger_attr;
 
     const result: TransactionResult = {
       hash: tx.hash,
-      status: tx.successful ? "success" : "failed",
-      ledger: tx.ledger_attr,
+      status: isPending ? "pending" : tx.successful ? "success" : "failed",
       createdAt: tx.created_at,
       fee: String(tx.fee_charged),
       envelopeXdr: tx.envelope_xdr,
       resultXdr: tx.result_xdr,
+      ...(isPending ? {} : { ledger: tx.ledger_attr }),
     };
 
     if (cache) {
