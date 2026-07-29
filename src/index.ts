@@ -10,6 +10,7 @@ export { createSorokitClient } from "./client/createSorokitClient";
 export type {
   SorokitClient,
   SorokitClientConfig,
+  HealthCheckReport,
 } from "./client/createSorokitClient";
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
@@ -206,6 +207,21 @@ export type {
   TransactionStatus,
   TrustlineParams,
 } from "./transaction/types";
+
+// ─── Asset pair trading logic (#209, #354) ────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
+} from "./transaction/assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./transaction/assetPairs";
 export { validateTransaction } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
@@ -332,6 +348,16 @@ export type {
   RateLimiterMetrics,
   RateLimiterEventType,
 } from "./shared/utils";
+
+// ─── Token validation utilities (#352) ────────────────────────────────────────
+export {
+  validateAssetCode,
+  validateAssetIssuer,
+  validateTokenAsset,
+  isSameAsset,
+  normalizePairId,
+} from "./shared/validateToken";
+export type { TokenAsset } from "./shared/validateToken";
 
 // ─── Distributed tracing (#212) ────────────────────────────────────────────
 export {
