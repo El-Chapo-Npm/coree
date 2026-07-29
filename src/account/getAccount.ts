@@ -3,6 +3,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { formatAddress, isNotFoundError, toMessage, retryWithBackoff, deduplicateRequest } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 /**
  * Fetch full account details including all balances from Horizon.
@@ -31,18 +32,27 @@ export function getAccount(
   return deduplicateRequest(cacheKey, async () => {
     try {
       const account = await retryWithBackoff(async () => {
-        const server = new Horizon.Server(horizonUrl);
+        const server = createHorizonServer(horizonUrl);
         return await server.loadAccount(publicKey);
       });
 
       const balances: AssetBalance[] = account.balances.map((b) => {
+        // Note: parseFloat is used here for convenience/backward compatibility.
+        // IEEE-754 doubles can represent integers up to ~9e15 exactly, and
+        // Stellar balances are 7-decimal strings. For hypothetical balances
+        // above ~900 trillion XLM, precision loss will occur — use the string
+        // `balance` field for those edge cases.
+        //
+        // For the full precision discussion see AssetBalance.balanceFloat.
+        const pf = (s: string) => parseFloat(s);
+
         if (b.asset_type === "native") {
           return {
             assetType: "native" as const,
             assetCode: "XLM",
             assetIssuer: null,
             balance: b.balance,
-            balanceFloat: parseFloat(b.balance),
+            balanceFloat: pf(b.balance),
           };
         }
 
@@ -55,17 +65,23 @@ export function getAccount(
             assetCode: b.asset_code,
             assetIssuer: b.asset_issuer,
             balance: b.balance,
-            balanceFloat: parseFloat(b.balance),
+            balanceFloat: pf(b.balance),
           };
         }
 
+        const liquidityPoolId = (b as { liquidity_pool_id?: string }).liquidity_pool_id;
         return {
           assetType: "liquidity_pool_shares" as const,
-          assetCode: "LP",
+          // Use the pool ID as the assetCode so callers can distinguish
+          // between different liquidity pool positions. Fall back to "LP"
+          // only if the field is absent (should not happen with Horizon).
+          assetCode: liquidityPoolId ?? "LP",
           assetIssuer: null,
           balance: b.balance,
-          balanceFloat: parseFloat(b.balance),
+          balanceFloat: pf(b.balance),
+          ...(liquidityPoolId !== undefined ? { liquidityPoolId } : {}),
         };
+
       });
 
       return ok({

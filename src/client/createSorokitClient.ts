@@ -18,6 +18,8 @@ import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
+import { setSponsor, removeSponsor } from "../account/sponsorship";
+import type { SponsorshipResult } from "../account/sponsorship";
 import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
@@ -30,6 +32,7 @@ import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
 import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
+import { queryTransactionHistory } from "../transaction/queryTransactionHistory";
 import { validateDestination } from "../transaction/validateDestination";
 import type {
   DestinationValidationResult,
@@ -38,12 +41,27 @@ import type {
 import { readContract } from "../soroban/readContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
-import { executeContract } from "../soroban/executeContract";
+import { executeContract, validateSorobanPollConfig } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
-import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
-import { formatAddress, generateTraceId } from "../shared/utils";
-import { ok } from "../shared/response";
+import { createContractStateTracker } from "../soroban/contractStateTracker";
+import {
+  createLogger,
+  createTracedLogger,
+  withLogging,
+  sanitizeLogMeta,
+} from "../shared/logger";
+import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
+import { setTracedFetch } from "../shared/serverFactory";
+import type { TraceContext } from "../shared/tracing";
+import {
+  formatAddress,
+  generateTraceId,
+  isValidPublicKey,
+  isValidContractId,
+  TokenBucketRateLimiter,
+} from "../shared/utils";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
 import { wrapCache } from "../shared/cache";
@@ -52,7 +70,8 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
 import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
 import type { ErrorCodeTransformer } from "../shared/errors";
-import { TokenBucketRateLimiter } from "../shared/utils";
+import { SDK_VERSION } from "../shared/constants";
+import { getTimeout, type GlobalTimeoutOverride, type OperationType } from "../shared/config";
 import type { NetworkType } from "../network/config";
 import type {
   WalletAdapter,
@@ -75,6 +94,10 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type { ExportTransactionHistoryOptions } from "../transaction/exportTransactionHistory";
+import type {
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "../transaction/queryTransactionHistory";
 import type {
   ContractMethod,
   ContractInvokeParams,
@@ -106,9 +129,18 @@ export interface SorokitClientConfig {
    * @deprecated Prefer `logLevel: "debug"`
    */
   debug?: boolean;
+  /**
+   * Prefix for built-in console log lines. Defaults to `"[sorokit]"`.
+   * Use distinct values (e.g. `"[sorokit:testnet]"`) when running multiple clients.
+   * Ignored when a custom `logger` is provided.
+   */
+  logPrefix?: string;
   /** Custom logger — overrides the built-in console logger */
   logger?: SorokitLogger;
-  /** Default Soroban polling config — can be overridden per-call */
+  /**
+   * Default Soroban polling config — can be overridden per-call.
+   * Defaults to DEFAULT_POLL_MAX_ATTEMPTS (20) and DEFAULT_POLL_INTERVAL_MS (1500).
+   */
   sorobanPoll?: SorobanPollConfig;
   /** Invoked when estimateFee detects a fee surge (>2x recent median) */
   onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
@@ -125,27 +157,40 @@ export interface SorokitClientConfig {
    * every error returned by client methods. Generated automatically when omitted.
    */
   traceId?: string;
+  /**
+   * Global timeout override for all operations in milliseconds.
+   * Set to null to use per-operation defaults.
+   * Can be overridden per-call via timeoutMs parameter.
+   */
+  timeoutMs?: GlobalTimeoutOverride;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
 
 export interface SorokitClient {
+  /** SDK version string from package.json */
+  readonly version: string;
   /** Resolved network configuration for this client instance */
   readonly networkConfig: ResolvedNetworkConfig;
   /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
   readonly trustedIssuers: string[] | null;
   /** Correlation ID stamped onto every error and log entry from this client. */
   readonly traceId: string;
+  /** Distributed trace context for this client instance (#212). */
+  readonly traceContext: TraceContext;
+  /** Get the current trace context (null if none set). */
+  readonly getTraceContext: () => TraceContext | null;
 
   readonly wallet: {
     /** Connect and return WalletState */
-    connect(adapter: WalletAdapter): Promise<SorokitResult<WalletState>>;
+    connect(adapter: WalletAdapter, timeoutMs?: number): Promise<SorokitResult<WalletState>>;
     /** Disconnect and return clean WalletState */
-    disconnect(adapter: WalletAdapter): Promise<SorokitResult<WalletState>>;
+    disconnect(adapter: WalletAdapter, timeoutMs?: number): Promise<SorokitResult<WalletState>>;
     /** Sign a transaction XDR */
     signTransaction(
       adapter: WalletAdapter,
       input: SignTransactionInput,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /**
      * Return a canonical disconnected WalletState.
@@ -156,13 +201,14 @@ export interface SorokitClient {
 
   readonly account: {
     /** Fetch full account info including all balances */
-    get(publicKey: string): Promise<SorokitResult<AccountInfo>>;
+    get(publicKey: string, timeoutMs?: number): Promise<SorokitResult<AccountInfo>>;
     /** Fetch full account info for multiple accounts in parallel */
     getAccountsBatch(
       publicKeys: string[],
+      timeoutMs?: number,
     ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
-    getBalances(publicKey: string): Promise<SorokitResult<AssetBalance[]>>;
+    getBalances(publicKey: string, timeoutMs?: number): Promise<SorokitResult<AssetBalance[]>>;
     /**
      * Fetch balances with optional filtering by asset code, issuer, type,
      * or zero-balance exclusion.
@@ -170,6 +216,7 @@ export interface SorokitClient {
     getAssetBalances(
       publicKey: string,
       filter?: AssetBalanceFilter,
+      timeoutMs?: number,
     ): Promise<SorokitResult<AssetBalance[]>>;
     /**
      * Stream account state by polling Horizon.
@@ -185,6 +232,23 @@ export interface SorokitClient {
      * Pure utility — returns string directly, cannot fail.
      */
     formatAddress(publicKey: string, chars?: number): string;
+    /**
+     * Check whether a string is a well-formed Stellar public key (G...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidPublicKey(key: string): boolean;
+    /**
+     * Check whether a string is a well-formed Stellar contract ID (C...).
+     * Pure utility — returns boolean directly, cannot fail.
+     */
+    isValidContractId(id: string): boolean;
+    /** Build operations to set a sponsor for an account */
+    setSponsor(
+      account: string,
+      sponsor: string,
+    ): SorokitResult<SponsorshipResult>;
+    /** Build operations to remove sponsorship from an account */
+    removeSponsor(account: string): SorokitResult<SponsorshipResult>;
   };
 
   readonly transaction: {
@@ -192,32 +256,36 @@ export interface SorokitClient {
     buildPayment(
       sourcePublicKey: string,
       params: PaymentParams,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Build a create account transaction XDR (unsigned) */
     buildCreateAccount(
       sourcePublicKey: string,
       params: AccountCreateParams,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Build a trustline transaction XDR (unsigned) */
     buildTrustline(
       sourcePublicKey: string,
       params: TrustlineParams,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Build an account merge transaction XDR (unsigned) */
     buildAccountMerge(
       sourcePublicKey: string,
       destinationPublicKey: string,
       options?: AccountMergeOptions,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
-    submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
+    submit(signedXdr: string, timeoutMs?: number): Promise<SorokitResult<TransactionResult>>;
     /** Fetch the status of a transaction by hash */
-    getStatus(hash: string): Promise<SorokitResult<TransactionResult>>;
+    getStatus(hash: string, timeoutMs?: number): Promise<SorokitResult<TransactionResult>>;
     /**
      * Estimate the fee for a transaction.
      * Pass a pre-built XDR or payment params to build a sample transaction.
      */
-    estimateFee(input: FeeEstimateInput): Promise<SorokitResult<FeeEstimate>>;
+    estimateFee(input: FeeEstimateInput, timeoutMs?: number): Promise<SorokitResult<FeeEstimate>>;
     /**
      * Stream transactions for an account by polling Horizon.
      * Yields SorokitResult<TransactionPage> on every poll.
@@ -233,7 +301,17 @@ export interface SorokitClient {
     validateDestination(
       publicKey: string,
       options?: Omit<ValidateDestinationOptions, "horizonUrl">,
+      timeoutMs?: number,
     ): Promise<SorokitResult<DestinationValidationResult>>;
+    /**
+     * Query transaction history with filtering, sorting, and pagination.
+     * Returns structured paginated data instead of a formatted string.
+     */
+    queryHistory(
+      publicKey: string,
+      query?: TransactionHistoryQuery,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<TransactionHistoryResult>>;
     /**
      * Export transaction history for an account with optional date, type, asset, and amount filters.
      * Supports CSV (default) and JSON formats.
@@ -241,11 +319,13 @@ export interface SorokitClient {
     exportHistory(
       publicKey: string,
       options?: ExportTransactionHistoryOptions,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Alias for exportHistory */
     exportTransactionHistory(
       publicKey: string,
       options?: ExportTransactionHistoryOptions,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
   };
 
@@ -254,6 +334,7 @@ export interface SorokitClient {
     getContractMethods(
       contractId: string,
       ttlMs?: number,
+      timeoutMs?: number,
     ): Promise<SorokitResult<ContractMethod[]>>;
     /**
      * Simulate any transaction XDR for fee estimation and pre-flight checks.
@@ -261,6 +342,7 @@ export interface SorokitClient {
      */
     simulate(
       transactionXdr: string,
+      timeoutMs?: number,
     ): Promise<SorokitResult<SimulateTransactionResult>>;
     /**
      * Step 1 of the invoke pipeline.
@@ -268,6 +350,7 @@ export interface SorokitClient {
      */
     prepare(
       params: ContractInvokeParams,
+      timeoutMs?: number,
     ): Promise<SorokitResult<PreparedContractCall>>;
     /**
      * Step 3 of the invoke pipeline.
@@ -276,6 +359,7 @@ export interface SorokitClient {
     execute(
       signedXdr: string,
       pollConfig?: SorobanPollConfig,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /**
      * Full invoke pipeline: prepare → sign → execute.
@@ -286,20 +370,167 @@ export interface SorokitClient {
       params: ContractInvokeParams,
       signFn: (xdr: string) => Promise<string>,
       pollConfig?: SorobanPollConfig,
+      timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Read contract data — no signing required */
     read(
       params: ContractReadParams,
+      timeoutMs?: number,
     ): Promise<SorokitResult<ContractCallResult>>;
   };
 
   readonly network: {
     /** Return the resolved network config for this client instance */
     getConfig(): ResolvedNetworkConfig;
+    /** Return the network type identifier string (e.g. "testnet", "mainnet", "futurenet") */
+    getId(): NetworkType;
   };
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
+
+function isValidUrlString(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate client configuration on startup (#137).
+ * Checks required fields, types, URL formats, and optional interface implementations.
+ */
+export function validateClientConfig(
+  config: SorokitClientConfig,
+): SorokitResult<void> {
+  if (!config || typeof config !== "object") {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Configuration must be an object",
+    );
+  }
+
+  const validNetworks = ["mainnet", "testnet", "futurenet"];
+  if (!config.network || !validNetworks.includes(config.network)) {
+    return err(
+      SorokitErrorCode.INVALID_NETWORK,
+      `Invalid network type: ${String(config.network)}. Must be one of: mainnet, testnet, futurenet`,
+    );
+  }
+
+  if (config.horizonUrl !== undefined) {
+    if (typeof config.horizonUrl !== "string" || !isValidUrlString(config.horizonUrl)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid horizonUrl: ${String(config.horizonUrl)}`,
+      );
+    }
+  }
+
+  if (config.rpcUrl !== undefined) {
+    if (typeof config.rpcUrl !== "string" || !isValidUrlString(config.rpcUrl)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid rpcUrl: ${String(config.rpcUrl)}`,
+      );
+    }
+  }
+
+  if (config.cache !== undefined && config.cache !== null) {
+    const c = config.cache as any;
+    if (
+      typeof c !== "object" ||
+      typeof c.get !== "function" ||
+      typeof c.set !== "function" ||
+      (typeof c.invalidate !== "function" && typeof c.delete !== "function")
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Cache interface must implement get, set, and invalidate/delete methods",
+      );
+    }
+  }
+
+  if (config.logger !== undefined && config.logger !== null) {
+    const l = config.logger as any;
+    if (
+      typeof l !== "object" ||
+      typeof l.debug !== "function" ||
+      typeof l.info !== "function" ||
+      typeof l.warn !== "function" ||
+      typeof l.error !== "function"
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Logger interface must implement debug, info, warn, and error methods",
+      );
+    }
+  }
+
+  if (config.errorHandler !== undefined && config.errorHandler !== null) {
+    if (typeof config.errorHandler !== "function") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "ErrorHandler must be a function",
+      );
+    }
+  }
+
+  if (config.errorCodeTransformer !== undefined && config.errorCodeTransformer !== null) {
+    if (typeof config.errorCodeTransformer !== "function") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "ErrorCodeTransformer must be a function",
+      );
+    }
+  }
+
+  if (config.maxTxPerSecond !== undefined) {
+    if (typeof config.maxTxPerSecond !== "number" || isNaN(config.maxTxPerSecond) || config.maxTxPerSecond <= 0) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "maxTxPerSecond must be a positive number",
+      );
+    }
+  }
+
+  if (config.logLevel !== undefined) {
+    const validLogLevels = ["off", "debug", "info", "warn", "error"];
+    if (!validLogLevels.includes(config.logLevel as string)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid logLevel: ${String(config.logLevel)}`,
+      );
+    }
+  }
+
+  if (config.trustedIssuers !== undefined && config.trustedIssuers !== null) {
+    if (!Array.isArray(config.trustedIssuers)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "trustedIssuers must be an array of public keys",
+      );
+    }
+  }
+
+  if (config.sorobanPoll) {
+    const pollErr = validateSorobanPollConfig(config.sorobanPoll);
+    if (pollErr) return pollErr;
+  }
+
+  if (config.timeoutMs !== undefined && config.timeoutMs !== null) {
+    if (typeof config.timeoutMs !== "number" || isNaN(config.timeoutMs) || config.timeoutMs < 0) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "timeoutMs must be a non-negative number",
+      );
+    }
+  }
+
+  return ok(undefined);
+}
 
 /**
  * Create a sorokit-core client instance.
@@ -323,6 +554,11 @@ export interface SorokitClient {
 export function createSorokitClient(
   config: SorokitClientConfig,
 ): SorokitResult<SorokitClient> {
+  const validationResult = validateClientConfig(config);
+  if (validationResult.status === "error") {
+    return validationResult as SorokitResult<SorokitClient>;
+  }
+
   const networkResult = resolveNetwork(config.network, {
     horizonUrl: config.horizonUrl,
     rpcUrl: config.rpcUrl,
@@ -333,15 +569,26 @@ export function createSorokitClient(
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
   const traceId = config.traceId ?? generateTraceId();
+  const globalTimeout = config.timeoutMs;
   const baseLogger =
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
+      ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
-  const logger = createTracedLogger(baseLogger, traceId);
+  const logger = createTracedLogger(baseLogger, { traceId });
+
+  // Set up distributed tracing with correlation IDs (#212).
+  const traceContext = createTraceContext(traceId);
+  const tracedFetch = createTracedFetch(traceContext);
+  
+
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
+  const contractStateTracker = cache
+    ? createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch })
+    : undefined;
   const feeEstimateOptions: FeeEstimateOptions = {
     ...(cache !== undefined ? { cache } : {}),
     ...(config.onFeeSurge !== undefined
@@ -357,13 +604,16 @@ export function createSorokitClient(
       ? new TokenBucketRateLimiter(config.maxTxPerSecond)
       : null;
 
-  logger.info("client.create", {
-    operation: "client.create",
-    status: "ok",
-    network: config.network,
-    horizonUrl,
-    rpcUrl,
-  });
+  logger.info(
+    "client.create",
+    sanitizeLogMeta({
+      operation: "client.create",
+      status: "ok",
+      network: config.network,
+      horizonUrl,
+      rpcUrl,
+    }),
+  );
 
   // Client creation checks cache for recovered state
   if (cache) {
@@ -374,12 +624,15 @@ export function createSorokitClient(
   }
 
   const client: SorokitClient = {
+    version: SDK_VERSION,
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
+    traceContext,
+    getTraceContext,
 
     wallet: {
-      connect: (adapter) => {
+      connect: (adapter, timeoutMs) => {
         const action = () => {
           if (cache) {
             const cachedVal = cache.get("wallet:state");
@@ -422,7 +675,7 @@ export function createSorokitClient(
           action
         ).then(applyTx);
       },
-      disconnect: (adapter) =>
+      disconnect: (adapter, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "wallet.disconnect", params: { walletType: adapter.walletType } },
@@ -431,7 +684,7 @@ export function createSorokitClient(
               disconnectWallet(adapter, cache),
             ),
         ).then(applyTx),
-      signTransaction: (adapter, input) =>
+      signTransaction: (adapter, input, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "wallet.signTransaction", params: { walletType: adapter.walletType } },
@@ -448,16 +701,23 @@ export function createSorokitClient(
 
 
     account: {
-      get: (publicKey) =>
+      get: (publicKey, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "account.get", params: { publicKey } },
           () =>
-            withLogging(logger, "account.get", { publicKey }, () =>
-              getAccount(horizonUrl, publicKey),
-            ),
+            withLogging(logger, "account.get", { publicKey }, async () => {
+              const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AccountInfo);
+              }
+              const res = await getAccount(horizonUrl, publicKey);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
-      getAccountsBatch: (publicKeys) =>
+      getAccountsBatch: (publicKeys, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "account.getAccountsBatch", params: { publicKeys } },
@@ -466,31 +726,51 @@ export function createSorokitClient(
               getAccountsBatch(horizonUrl, publicKeys),
             ),
         ).then(applyTx),
-      getBalances: (publicKey) =>
+      getBalances: (publicKey, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "account.getBalances", params: { publicKey } },
           () =>
-            withLogging(logger, "account.getBalances", { publicKey }, () =>
-              getBalances(horizonUrl, publicKey),
-            ),
+            withLogging(logger, "account.getBalances", { publicKey }, async () => {
+              const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AssetBalance[]);
+              }
+              const res = await getBalances(horizonUrl, publicKey);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
-      getAssetBalances: (publicKey, filter) =>
+      getAssetBalances: (publicKey, filter, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "account.getAssetBalances", params: { publicKey, filter } },
           () =>
-            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
-              getAssetBalances(horizonUrl, publicKey, filter),
-            ),
+            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, async () => {
+              const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
+              if (cache) {
+                const cachedVal = cache.get(cacheKey);
+                if (cachedVal) return ok(cachedVal as AssetBalance[]);
+              }
+              const res = await getAssetBalances(horizonUrl, publicKey, filter);
+              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+              return res;
+            }),
         ).then(applyTx),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
+      isValidPublicKey: (key) => isValidPublicKey(key),
+      isValidContractId: (id) => isValidContractId(id),
+      setSponsor: (account, sponsor) =>
+        applyTx(setSponsor(account, sponsor)),
+      removeSponsor: (account) =>
+        applyTx(removeSponsor(account)),
     },
 
     transaction: {
-      buildPayment: (sourcePublicKey, params) =>
+      buildPayment: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.buildPayment", params: { sourcePublicKey, ...params } },
@@ -505,7 +785,7 @@ export function createSorokitClient(
             );
           }
         ).then(applyTx),
-      buildCreateAccount: (sourcePublicKey, params) =>
+      buildCreateAccount: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.buildCreateAccount", params: { sourcePublicKey, ...params } },
@@ -519,7 +799,7 @@ export function createSorokitClient(
             );
           }
         ).then(applyTx),
-      buildTrustline: (sourcePublicKey, params) =>
+      buildTrustline: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.buildTrustline", params: { sourcePublicKey, ...params } },
@@ -534,7 +814,7 @@ export function createSorokitClient(
             );
           }
         ).then(applyTx),
-      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options) =>
+      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.buildAccountMerge", params: { sourcePublicKey, destinationPublicKey, options } },
@@ -549,7 +829,7 @@ export function createSorokitClient(
             );
           }
         ).then(applyTx),
-      submit: async (signedXdr) =>
+      submit: async (signedXdr, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.submit" },
@@ -559,7 +839,7 @@ export function createSorokitClient(
             return submitTransaction(horizonUrl, networkPassphrase, signedXdr, cache);
           }
         ).then(applyTx),
-      getStatus: (hash) =>
+      getStatus: (hash, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.getStatus", params: { hash } },
@@ -568,7 +848,7 @@ export function createSorokitClient(
             return getTransactionStatus(horizonUrl, hash);
           }
         ).then(applyTx),
-      estimateFee: (input) =>
+      estimateFee: (input, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.estimateFee", params: { ...input } },
@@ -589,7 +869,7 @@ export function createSorokitClient(
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);
       },
-      validateDestination: (publicKey, options) =>
+      validateDestination: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.validateDestination", params: { publicKey, options } },
@@ -601,7 +881,19 @@ export function createSorokitClient(
             });
           },
         ).then(applyTx),
-      exportHistory: (publicKey, options) =>
+      queryHistory: (publicKey, query, timeoutMs) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.queryHistory", params: { publicKey, query } },
+          () => {
+            logger.debug("transaction.queryHistory", { publicKey });
+            return queryTransactionHistory(horizonUrl, publicKey, {
+              ...query,
+              networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
+            });
+          },
+        ).then(applyTx),
+      exportHistory: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.exportHistory", params: { publicKey, options } },
@@ -613,7 +905,7 @@ export function createSorokitClient(
             });
           },
         ).then(applyTx),
-      exportTransactionHistory: (publicKey, options) =>
+      exportTransactionHistory: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "transaction.exportTransactionHistory", params: { publicKey, options } },
@@ -628,7 +920,7 @@ export function createSorokitClient(
     },
 
     soroban: {
-      getContractMethods: (contractId, ttlMs) =>
+      getContractMethods: (contractId, ttlMs, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.getContractMethods", params: { contractId } },
@@ -644,16 +936,16 @@ export function createSorokitClient(
                 }),
             ),
         ).then(applyTx),
-      simulate: (transactionXdr) =>
+      simulate: (transactionXdr, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.simulate" },
           () =>
-            withLogging(logger, "soroban.simulate", undefined, () =>
+            withLogging(logger, "soroban.simulate", {}, () =>
               simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
             ),
         ).then(applyTx),
-      prepare: (params) =>
+      prepare: (params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } },
@@ -665,7 +957,7 @@ export function createSorokitClient(
               () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
             ),
         ).then(applyTx),
-      execute: (signedXdr, pollConfig) =>
+      execute: (signedXdr, pollConfig, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.execute" },
@@ -676,9 +968,10 @@ export function createSorokitClient(
               signedXdr,
               pollConfig ?? defaultPollConfig,
               logger,
+              contractStateTracker,
             ),
         ).then(applyTx),
-      invoke: (params, signFn, pollConfig) =>
+      invoke: (params, signFn, pollConfig, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } },
@@ -692,14 +985,19 @@ export function createSorokitClient(
                   rpcUrl,
                   networkConfig,
                   horizonUrl,
-                  params,
+                  {
+                    ...params,
+                    ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                      ? { stateTracker: contractStateTracker }
+                      : {}),
+                  },
                   signFn,
                   pollConfig ?? defaultPollConfig,
                   logger,
                 ),
             ),
         ).then(applyTx),
-      read: (params) =>
+      read: (params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
           { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } },
@@ -708,13 +1006,20 @@ export function createSorokitClient(
               logger,
               "soroban.read",
               { contractId: params.contractId, method: params.method },
-              () => readContract(rpcUrl, horizonUrl, networkConfig, params),
+              () =>
+                readContract(rpcUrl, horizonUrl, networkConfig, {
+                  ...params,
+                  ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                    ? { stateTracker: contractStateTracker }
+                    : {}),
+                }),
             ),
         ).then(applyTx),
     },
 
     network: {
       getConfig: () => networkConfig,
+      getId: () => config.network,
     },
   };
 

@@ -14,11 +14,13 @@ import {
   retryWithBackoff,
   toMessage,
 } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import { isValidContractId } from "../shared/utils";
+import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
+import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describePrepareFailure(cause: unknown): string {
   if (isTimeoutError(cause)) {
@@ -46,6 +48,20 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  if (!isValidContractId(params.contractId)) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Invalid contract ID: '${params.contractId}'. Expected a C-prefixed 56-character Stellar base32 string.`,
+    );
+  }
+
+  if (!params.method || params.method.trim().length === 0) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      "Contract method name must not be empty.",
+    );
+  }
+
   const abiValidation = validateContractAbi({
     contractAbi: params.contractAbi,
     method: params.method,
@@ -62,8 +78,8 @@ export async function prepareContractCall(
   if (metadataResult.status === "error") return metadataResult;
 
   try {
-    const rpc = new SorobanRpc.Server(rpcUrl);
-    const horizonServer = new Horizon.Server(horizonUrl);
+    const rpc = createSorobanServer(rpcUrl);
+    const horizonServer = createHorizonServer(horizonUrl);
     const contract = new Contract(params.contractId);
 
     const sourceAccount = await horizonServer.loadAccount(params.publicKey);
@@ -74,7 +90,7 @@ export async function prepareContractCall(
       networkPassphrase: networkConfig.networkPassphrase,
     })
       .addOperation(operation)
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
       .build();
 
     const simResult = await retryWithBackoff(async () => {
