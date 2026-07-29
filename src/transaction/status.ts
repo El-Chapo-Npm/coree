@@ -18,7 +18,7 @@ import { createHorizonServer, createSorobanServer } from "../shared/serverFactor
  * @param cache      - Optional cache to check before hitting Horizon.
  * @returns `ok(TransactionResult)` with the confirmed transaction details,
  *          `error(TX_NOT_FOUND)` when the hash is unknown to Horizon,
- *          or `error(TX_SUBMIT_FAILED)` on other network failures.
+ *          or `error(TX_FETCH_FAILED)` on other network failures.
  *
  * @example
  * const result = await getTransactionStatus(horizonUrl, txHash);
@@ -66,7 +66,7 @@ export async function getTransactionStatus(
     return err(
       isNotFoundError(cause)
         ? SorokitErrorCode.TX_NOT_FOUND
-        : SorokitErrorCode.TX_SUBMIT_FAILED,
+        : SorokitErrorCode.TX_FETCH_FAILED,
       isNotFoundError(cause)
         ? `Transaction not found: ${hash}`
         : `Failed to fetch transaction status: ${toMessage(cause)}`,

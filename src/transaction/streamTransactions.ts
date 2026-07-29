@@ -366,7 +366,7 @@ export async function* streamTransactions(
     } catch (cause) {
       const code = isNotFoundError(cause)
         ? SorokitErrorCode.ACCOUNT_NOT_FOUND
-        : SorokitErrorCode.TX_SUBMIT_FAILED;
+        : SorokitErrorCode.TX_FETCH_FAILED;
       const message = isNotFoundError(cause)
         ? `Account not found while streaming transactions: ${publicKey}`
         : `Transaction stream poll failed: ${toMessage(cause)}`;
