@@ -47,6 +47,22 @@ export { validateContractAbi } from "./validateContractAbi";
 export { SorobanSimulator } from "./simulator";
 export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
+export { getFactoryStatistics } from "./factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./factoryStatistics";
+export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./decodeContractEvent";
 export {
   snapshotContractState,
   compareSnapshots,

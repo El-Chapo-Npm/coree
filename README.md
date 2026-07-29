@@ -329,3 +329,27 @@ Pull requests are welcome. For significant changes, please open an issue first t
 ## License
 
 [MIT](LICENSE)
+# Factory statistics
+
+API servers can expose `getFactoryStatistics` at a route such as
+`GET /factory/:id/statistics`. Supply an adapter that reads the factory pair
+count and deployment metadata; the function returns Sorokit's standard
+structured JSON result.
+
+# Decode factory and router events
+
+```ts
+import { decodeContractEvent, queryContractEvents } from "sorokit-core";
+
+const events = await queryContractEvents(factoryId, undefined, { horizonUrl });
+for (const event of events) {
+  const decoded = decodeContractEvent(event);
+  if (decoded?.type === "factory.pair_created") {
+    console.log(decoded.data);
+  }
+}
+```
+
+Pass custom decoders as the second argument to support application-specific
+events. Custom decoders run first, so adding new built-in event types remains
+backward-compatible.
