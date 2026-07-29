@@ -261,6 +261,17 @@ export type {
   ContractDataValidationResult,
 } from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
+export { getContractMethods } from "./soroban/contractMetadata";
+export { ContractInteractionBuilder } from "./soroban";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./soroban";
 export { getContractMethods, parseContractSchema, validateContractArgs } from "./soroban/contractMetadata";
 export type {
   ContractSchema,

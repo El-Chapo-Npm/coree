@@ -28,6 +28,18 @@ export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export type { InvokeContractOptions } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
+export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
+export { getContractMethods } from "./contractMetadata";
+export { ContractInteractionBuilder } from "./contractInteractionBuilder";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./contractInteractionBuilder";
 export { subscribeContractEvents, queryContractEvents, streamContractEvents } from "./subscribeContractEvents";
 export { getContractMethods, parseContractSchema, validateContractArgs } from "./contractMetadata";
 export type { ContractSchema, ContractMethodSchema, ContractMethodParam } from "./contractMetadata";
