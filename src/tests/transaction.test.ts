@@ -636,6 +636,26 @@ describe("transaction streaming filters", () => {
     expect(mockCursorCall).toHaveBeenNthCalledWith(1, "initial_cursor");
     expect(mockCursorCall).toHaveBeenNthCalledWith(2, "cursor_page_1");
   });
+
+  it("maps a non-404 poll error to TX_FETCH_FAILED, not TX_SUBMIT_FAILED", async () => {
+    mockTransactionsCall.mockRejectedValueOnce(
+      new Error("network request failed"),
+    );
+
+    const stream = streamTransactions(
+      networkConfig.horizonUrl,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      { maxPolls: 1 },
+    );
+
+    const { value } = await stream.next();
+
+    expect(value?.status).toBe("error");
+    if (value?.status === "error") {
+      expect(value.error.code).toBe(SorokitErrorCode.TX_FETCH_FAILED);
+      expect(value.error.code).not.toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+    }
+  });
 });
 
 function mockRecentFeeHistory(fees: string[]): void {
@@ -1597,6 +1617,21 @@ describe("transaction caching", () => {
       if (result.status === "ok") {
         expect(result.data.status).toBe("pending");
         expect(result.data.ledger).toBeUndefined();
+      }
+    });
+
+    it("maps a non-404 network error to TX_FETCH_FAILED, not TX_SUBMIT_FAILED", async () => {
+      mockTransactionCall.mockRejectedValue(new Error("network request failed"));
+
+      const result = await getTransactionStatus(
+        networkConfig.horizonUrl,
+        "test_hash",
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_FETCH_FAILED);
+        expect(result.error.code).not.toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
       }
     });
   });
