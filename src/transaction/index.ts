@@ -180,6 +180,34 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+// ─── Webhook support (#208) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  verifySignature,
+} from "./webhooks";
+export type {
+  WebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+} from "./webhooks";
+
+// ─── Asset pair trading logic (#209) ───────────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+} from "./assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./assetPairs";
 export {
   buildMultiSigEnvelope,
   collectSignature,
