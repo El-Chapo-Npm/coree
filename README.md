@@ -49,6 +49,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Streaming](#streaming)
 - [Networks](#networks)
 - [Testing Utilities](#testing-utilities)
+- [Examples](#examples)
 - [Design Principles](#design-principles)
 - [License](#license)
 
@@ -196,6 +197,29 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Contract deployment
+
+`buildContractDeploy` validates its configuration before any network call, so a
+missing endpoint or a malformed deployer address fails immediately with an
+`INVALID_CONFIG` error naming every offending field and how to fix it. Call the
+same check directly from a deployment script to fail before you spend a build:
+
+```ts
+import { validateDeployConfig, collectDeployConfigIssues } from "sorokit-core";
+
+const check = validateDeployConfig({ rpcUrl, horizonUrl, networkConfig, deployer });
+if (check.status === "error") {
+  console.error(check.error.message);
+  // Deployment configuration is invalid — 2 problems found:
+  //   1. rpcUrl — rpcUrl is missing. Fix: Set rpcUrl to the Soroban RPC endpoint …
+  //   2. deployer — deployer is not a valid Stellar public key: "GNOPE". Fix: …
+  process.exit(1);
+}
+
+// Or render the issues yourself — each has { field, reason, hint }
+const issues = collectDeployConfigIssues({ rpcUrl, horizonUrl, networkConfig, deployer });
+```
+
 ---
 
 ## Result Type
@@ -317,6 +341,16 @@ const adapter = createMockWalletAdapter();
 **Framework-agnostic** — zero dependency on React, Vue, or any UI framework. Works in Node, the browser, and server-side rendering environments.
 
 **Adapter-based wallets** — wallet integration is delegated to [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit), keeping `sorokit-core` decoupled from wallet implementation details.
+
+---
+
+## Examples
+
+| Example                                       | Shows                                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| [`examples/router-swap`](examples/router-swap) | Frontend router integration: quote → swap → transaction tracking, with wallet signing and router error handling |
+
+Examples are type-checked against the SDK source with `npm run typecheck:examples`.
 
 ---
 
