@@ -8,6 +8,7 @@
 import { Asset } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { isSameAsset } from "../shared/validateToken";
 
 /**
  * Asset in a swap path.
@@ -123,7 +124,7 @@ export async function findSwapPath(
   // Placeholder: return direct path with estimated price
   // In production, this would query Horizon for liquidity pools
   
-  if (sourceAsset.code === destAsset.code && sourceAsset.issuer === destAsset.issuer) {
+  if (isSameAsset(sourceAsset, destAsset)) {
     return err(
       SorokitErrorCode.ROUTER_INVALID_PATH,
       "Router path is invalid: source and destination assets cannot be the same",

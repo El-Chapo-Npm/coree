@@ -73,6 +73,8 @@ import type { ErrorCodeTransformer } from "../shared/errors";
 import { SDK_VERSION } from "../shared/constants";
 import { getTimeout, type GlobalTimeoutOverride, type OperationType } from "../shared/config";
 import type { NetworkType } from "../network/config";
+import { checkNetworkHealth } from "../network";
+import type { NetworkHealthReport } from "../network";
 import type {
   WalletAdapter,
   WalletState,
@@ -109,6 +111,19 @@ import type {
 } from "../soroban/types";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
+export interface HealthCheckReport {
+  /** Overall health status */
+  status: "healthy" | "degraded" | "down";
+  /** SDK version */
+  version: string;
+  /** Network type (testnet, mainnet, futurenet) */
+  network: NetworkType;
+  /** Network connectivity check */
+  networkHealth: NetworkHealthReport;
+  /** Timestamp of the health check */
+  timestamp: string;
+}
 
 export interface SorokitClientConfig {
   /** Target network */
@@ -180,6 +195,13 @@ export interface SorokitClient {
   readonly traceContext: TraceContext;
   /** Get the current trace context (null if none set). */
   readonly getTraceContext: () => TraceContext | null;
+
+  /**
+   * Check the health status of the client and its network connections.
+   * Returns a simple health report with status, network connectivity, and version info.
+   * Lightweight and dependency-free — suitable for monitoring endpoints.
+   */
+  healthCheck(): Promise<SorokitResult<HealthCheckReport>>;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -630,6 +652,29 @@ export function createSorokitClient(
     traceId,
     traceContext,
     getTraceContext,
+
+    healthCheck: async () => {
+      const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);
+      const networkHealth = networkHealthResult.status === "ok"
+        ? networkHealthResult.data
+        : {
+            status: "down" as const,
+            horizon: { reachable: false, latencyMs: null, error: "Failed to check" },
+            rpc: { reachable: false, latencyMs: null, error: "Failed to check" },
+            issues: ["Health check failed"],
+            recommendations: ["Check network configuration"],
+          };
+
+      const overallStatus = networkHealth.status;
+
+      return ok({
+        status: overallStatus,
+        version: SDK_VERSION,
+        network: config.network,
+        networkHealth,
+        timestamp: new Date().toISOString(),
+      });
+    },
 
     wallet: {
       connect: (adapter, timeoutMs) => {
