@@ -596,6 +596,7 @@ export function createSorokitClient(
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
+      prefix: config.logPrefix,
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });

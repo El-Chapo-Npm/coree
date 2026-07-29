@@ -159,7 +159,27 @@ export function createTracedLogger(
   };
 }
 
-/** Log the start and completion of an asynchronous operation. */
+/**
+ * Create a logger instance.
+ * Pass a custom implementation to redirect logs to your own sink.
+ */
+export function createLogger(
+  config?: LoggerConfig | boolean,
+  custom?: SorokitLogger,
+): SorokitLogger {
+  if (custom) return custom;
+  if (typeof config === "object" && config?.logger) return config.logger;
+
+  const logLevel = resolveLogLevel(config);
+  if (logLevel === "off") return noopLogger;
+  const prefix = typeof config === "object" ? config?.prefix : undefined;
+  return createConsoleLogger(logLevel, prefix);
+}
+
+/**
+ * Log the start and result of an async SDK operation.
+ * Emits debug on start, info on success, warn on handled errors.
+ */
 export async function withLogging<T>(
   logger: TracedLogger,
   operation: string,
