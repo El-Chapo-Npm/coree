@@ -15,6 +15,12 @@ function deriveTxHash(xdr: string, networkPassphrase: string): string {
  * The adapter handles wallet-specific signing logic and user rejection detection.
  * This function only enforces the browser guard before delegating.
  *
+ * Returns `SorokitResult<string>` in all code paths — never throws.
+ * - User rejection → `{ status: 'error', error: { code: 'WALLET_SIGN_REJECTED' } }`
+ * - Adapter/network failure → `{ status: 'error', error: { code: 'WALLET_SIGN_FAILED' } }`
+ * - Success → `{ status: 'ok', data: signedXdr }` where `signedXdr` is accepted
+ *   directly by `submitTransaction()` without additional transformation.
+ *
  * When `historyStore` is provided every signing attempt — success or failure —
  * is recorded with the transaction hash, signer address, ISO-8601 timestamp,
  * and outcome. History tracking is fully opt-in; omitting the parameter leaves
