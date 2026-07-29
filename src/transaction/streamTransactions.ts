@@ -212,10 +212,16 @@ export async function* streamTransactions(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<TransactionPage>> {
-  const baseIntervalMs = Math.max(
-    config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
-    MIN_POLL_INTERVAL_MS,
-  );
+  const requestedInterval = config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  if (requestedInterval < MIN_POLL_INTERVAL_MS) {
+    const msg = `intervalMs clamped from ${requestedInterval}ms to ${MIN_POLL_INTERVAL_MS}ms`;
+    if (logger) {
+      logger.warn(msg, { operation: "transaction.stream" });
+    } else {
+      console.warn(msg);
+    }
+  }
+  const baseIntervalMs = Math.max(requestedInterval, MIN_POLL_INTERVAL_MS);
   const adaptiveEnabled =
     config?.minIntervalMs !== undefined ||
     config?.maxIntervalMs !== undefined ||
@@ -351,7 +357,7 @@ export async function* streamTransactions(
       const hasBaseline = lastEmitted !== undefined;
       const changed = !hasBaseline || !sameSnapshot(lastEmitted, transactionPage);
       if (hasBaseline) adjustInterval(changed);
-      cursor = nextCursor ?? cursor;
+      if (nextCursor !== null) cursor = nextCursor;
 
       if (changed) {
         lastEmitted = transactionPage;

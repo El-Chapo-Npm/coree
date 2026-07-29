@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Horizon } from "@stellar/stellar-sdk";
+import * as serverFactory from "../shared/serverFactory";
 import {
   exportTransactionHistory,
   formatTransactionsToCsv,
@@ -110,7 +111,7 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     const result = await exportTransactionHistory(horizonUrl, publicKey);
     expect(result.status).toBe("ok");
@@ -145,7 +146,7 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     const result = await exportTransactionHistory(horizonUrl, publicKey, { format: "json" });
     expect(result.status).toBe("ok");
@@ -158,6 +159,7 @@ describe("exportTransactionHistory", () => {
   });
 
   it("filters by date range (fromDate / toDate)", async () => {
+    // Records in ascending order (oldest first) matching order: "asc"
     const mockTxRecords = [
       {
         hash: "tx1",
@@ -197,12 +199,13 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     const result = await exportTransactionHistory(horizonUrl, publicKey, {
       format: "json",
       fromDate: "2026-01-10T00:00:00Z",
       toDate: "2026-01-20T00:00:00Z",
+      order: "asc",
     });
 
     expect(result.status).toBe("ok");
@@ -235,7 +238,7 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     // Matching filter
     const resultMatch = await exportTransactionHistory(horizonUrl, publicKey, {
@@ -282,7 +285,7 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     // Asset XLM match
     const resAsset = await exportTransactionHistory(horizonUrl, publicKey, {
@@ -320,7 +323,7 @@ describe("exportTransactionHistory", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     const result = await exportTransactionHistory(horizonUrl, "GBOGUSACCOUNT");
     expect(result.status).toBe("error");
@@ -364,7 +367,7 @@ describe("SorokitClient.transaction.exportHistory integration", () => {
       call: mockCall,
     };
 
-    vi.spyOn(Horizon.Server.prototype, "transactions").mockReturnValue(mockBuilder as any);
+    vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({ transactions: vi.fn().mockReturnValue(mockBuilder) } as any);
 
     const resCsv = await client.transaction.exportHistory("GCLIENT123");
     expect(resCsv.status).toBe("ok");

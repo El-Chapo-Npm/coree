@@ -48,7 +48,7 @@ export function createHorizonServer(
   horizonUrl: string,
 ): Horizon.Server {
   return tracedFetch
-    ? new Horizon.Server(horizonUrl, { fetch: tracedFetch })
+    ? new Horizon.Server(horizonUrl, { fetch: tracedFetch } as any)
     : new Horizon.Server(horizonUrl);
 }
 
@@ -63,6 +63,6 @@ export function createSorobanServer(
     return activeSimulator;
   }
   return tracedFetch
-    ? new SorobanRpc.Server(rpcUrl, { fetch: tracedFetch })
+    ? new SorobanRpc.Server(rpcUrl, { fetch: tracedFetch } as any)
     : new SorobanRpc.Server(rpcUrl);
 }

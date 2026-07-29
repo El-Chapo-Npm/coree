@@ -94,22 +94,26 @@ describe("shared/logger", () => {
       infoSpy.mockRestore();
     });
 
-    it("uses custom prefix when provided", () => {
-      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
-      const logger = createLogger({ logLevel: "info", prefix: "[sorokit:testnet]" });
+    it("applies a custom prefix to console output (#257)", () => {
+      const debugSpy = vi
+        .spyOn(console, "debug")
+        .mockImplementation(() => undefined);
+      const logger = createLogger({
+        logLevel: "debug",
+        prefix: "[sorokit:testnet]",
+      });
 
-      logger.info("test message", { operation: "test" });
+      logger.debug("prefixed");
 
-      expect(infoSpy).toHaveBeenCalledWith(
+      expect(debugSpy).toHaveBeenCalledWith(
         "[sorokit:testnet]",
         expect.objectContaining({
-          level: "info",
-          message: "test message",
-          operation: "test",
+          level: "debug",
+          message: "prefixed",
         }),
       );
 
-      infoSpy.mockRestore();
+      debugSpy.mockRestore();
     });
   });
 
@@ -175,9 +179,25 @@ describe("createSorokitClient logger integration", () => {
     );
   });
 
-  it("uses custom logPrefix when provided", () => {
-    const result = createSorokitClient({ network: "testnet", logLevel: "info", logPrefix: "[app:testnet]" });
+  it("uses logPrefix in console output when debug is enabled (#257)", () => {
+    const debugSpy = vi
+      .spyOn(console, "debug")
+      .mockImplementation(() => undefined);
+
+    const result = createSorokitClient({
+      network: "testnet",
+      debug: true,
+      logPrefix: "[app:testnet]",
+      cache: {
+        get: () => undefined,
+        set: () => undefined,
+        invalidate: () => undefined,
+        clear: () => undefined,
+      },
+    });
+
     expect(result.status).toBe("ok");
+    // client.create emits info; cache probe emits debug — both use logPrefix
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       "[app:testnet]",
       expect.objectContaining({
@@ -186,6 +206,14 @@ describe("createSorokitClient logger integration", () => {
         network: "testnet",
       }),
     );
+    expect(debugSpy).toHaveBeenCalledWith(
+      "[app:testnet]",
+      expect.objectContaining({
+        message: "client.create: checked cache for recovered wallet state",
+      }),
+    );
+
+    debugSpy.mockRestore();
   });
 
   it("does not log wallet.emptyState calls", () => {

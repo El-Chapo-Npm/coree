@@ -28,6 +28,7 @@
  */
 
 import { generateTraceId } from "./utils";
+import { randomBytes } from "crypto";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -95,8 +96,8 @@ export function createTraceContext(
   return {
     traceId: id,
     spanId,
-    parentSpanId: options.parentSpanId,
-    tags: options.tags,
+    ...(options.parentSpanId !== undefined ? { parentSpanId: options.parentSpanId } : {}),
+    ...(options.tags !== undefined ? { tags: options.tags } : {}),
   };
 }
 
@@ -104,8 +105,15 @@ export function createTraceContext(
  * Generate a 64-bit hex span identifier.
  */
 function generateSpanId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c?.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    c.getRandomValues(bytes);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  const bytes = randomBytes(8);
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -191,6 +199,6 @@ export function createAutoTracedFetch(tags?: Record<string, string>): {
   fetch: typeof fetch;
   context: TraceContext;
 } {
-  const context = createTraceContext(undefined, { tags });
+  const context = createTraceContext(undefined, tags !== undefined ? { tags } : {});
   return { fetch: createTracedFetch(context), context };
 }

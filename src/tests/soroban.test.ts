@@ -1,4 +1,4 @@
-import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
+import { Keypair, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SorokitCache } from "../shared/cache";
 import { SorokitErrorCode } from "../shared/response";
@@ -11,14 +11,17 @@ import {
   snapshotContractState,
 } from "../soroban/contractSnapshot";
 import { buildContractDeploy } from "../soroban/deployContract";
+import { executeContract } from "../soroban/executeContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
 import { simulateContractSafe } from "../soroban/simulateContractSafe";
 import { simulateTransaction } from "../soroban/simulateTransaction";
+import { createContractStateTracker } from "../soroban/contractStateTracker";
 import {
   subscribeContractEvents,
   queryContractEvents,
 } from "../soroban/subscribeContractEvents";
+import { validateContractData } from "../soroban";
 import type { ContractAbi } from "../soroban/types";
 
 const {
@@ -29,6 +32,9 @@ const {
   mockIsSimulationError,
   mockAssembleTransaction,
   mockScValToNative,
+  mockSendTransaction,
+  mockGetTransaction,
+  mockFromScAddress,
 } = vi.hoisted(() => ({
   mockGetLedgerEntries: vi.fn(),
   mockLoadAccount: vi.fn(),
@@ -37,6 +43,9 @@ const {
   mockIsSimulationError: vi.fn(),
   mockAssembleTransaction: vi.fn(),
   mockScValToNative: vi.fn(),
+  mockSendTransaction: vi.fn(),
+  mockGetTransaction: vi.fn(),
+  mockFromScAddress: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
@@ -86,6 +95,10 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   return {
     ...actual,
     BASE_FEE: "100",
+    Address: {
+      ...actual.Address,
+      fromScAddress: mockFromScAddress,
+    },
     Contract: MockContract,
     Horizon: {
       Server: vi.fn().mockImplementation(() => ({
@@ -99,6 +112,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       Server: vi.fn().mockImplementation(() => ({
         getLedgerEntries: mockGetLedgerEntries,
         simulateTransaction: mockSimulateTransaction,
+        sendTransaction: mockSendTransaction,
+        getTransaction: mockGetTransaction,
       })),
       Api: {
         ...actual.rpc.Api,
@@ -138,6 +153,9 @@ const networkConfig: ResolvedNetworkConfig = {
   rpcUrl: "https://soroban-testnet.stellar.org",
   networkPassphrase: "Test SDF Network ; September 2015",
 };
+
+const MOCK_XDR = "AAAAAQAAAAA=";
+const MOCK_SIGNED_XDR = "AAAAAgAAAAA=";
 
 const contractAbi: ContractAbi = {
   methods: [
@@ -292,6 +310,20 @@ function resetRpcSimulationMocks(): void {
   });
   mockScValToNative.mockReset();
   mockScValToNative.mockReturnValue("native-value");
+  mockSendTransaction.mockReset();
+  mockSendTransaction.mockResolvedValue({
+    status: "PENDING",
+    hash: "tx-hash",
+  });
+  mockGetTransaction.mockReset();
+  mockGetTransaction.mockResolvedValue({
+    status: "SUCCESS",
+    txHash: "tx-hash",
+  });
+  mockFromScAddress.mockReset();
+  mockFromScAddress.mockReturnValue({
+    toString: () => "CACHED-CONTRACT-ID",
+  });
 }
 
 describe("soroban contract metadata", () => {
@@ -600,6 +632,125 @@ describe("soroban contract event subscriptions", () => {
     await vi.advanceTimersByTimeAsync(5);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+import { streamContractEvents } from "../soroban/subscribeContractEvents";
+
+describe("streamContractEvents (#188)", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("yields new events as an async generator", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const ac = new AbortController();
+    const gen = streamContractEvents(
+      "C123",
+      undefined,
+      { horizonUrl: "https://horizon.test", intervalMs: 10, fetch: fetchMock },
+      ac.signal,
+    );
+
+    const nextPromise = gen.next();
+    await vi.advanceTimersByTimeAsync(15);
+    ac.abort();
+
+    const result = await nextPromise;
+    expect(result.done).toBe(false);
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0].id).toBe("evt-1");
+  });
+
+  it("deduplicates events — same event is not yielded twice", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-dup",
+              contractId: "C123",
+              name: "mint",
+              topics: [],
+              value: {},
+            },
+          ],
+        },
+      }),
+    });
+
+    const ac = new AbortController();
+    const received: string[] = [];
+
+    const consume = async () => {
+      for await (const events of streamContractEvents(
+        "C123",
+        undefined,
+        { horizonUrl: "https://horizon.test", intervalMs: 10, fetch: fetchMock },
+        ac.signal,
+      )) {
+        for (const e of events) received.push(String(e.id));
+      }
+    };
+
+    const p = consume();
+    await vi.advanceTimersByTimeAsync(40);
+    ac.abort();
+    await p;
+
+    // Even though fetch returned the same event multiple times, it should only appear once
+    expect(received.filter((id) => id === "evt-dup")).toHaveLength(1);
+  });
+
+  it("stops when the AbortSignal is aborted", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [] } }),
+    });
+
+    const ac = new AbortController();
+    const results: unknown[] = [];
+
+    const consume = async () => {
+      for await (const events of streamContractEvents(
+        "C123",
+        undefined,
+        { horizonUrl: "https://horizon.test", intervalMs: 100, fetch: fetchMock },
+        ac.signal,
+      )) {
+        results.push(events);
+      }
+    };
+
+    const p = consume();
+    ac.abort();
+    await vi.advanceTimersByTimeAsync(200);
+    await p;
+
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
 
@@ -975,6 +1126,7 @@ describe.skip("soroban contract ABI validation", () => {
   describe("readContract caching (#88)", () => {
     beforeEach(() => {
       resetRpcSimulationMocks();
+      vi.restoreAllMocks();
     });
 
     it("behaves as before if no cache option is provided (backward compatible)", async () => {
@@ -1204,6 +1356,212 @@ describe.skip("soroban contract ABI validation", () => {
       expect(cache.ttlMs).toBe(5 * 60 * 1000);
     });
 
+    it("invalidates cached reads after a successful local contract modification", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 60_000,
+      });
+      const fromXdrSpy = vi.spyOn(TransactionBuilder, "fromXDR").mockReturnValue({
+        operations: [
+          {
+            type: "invokeHostFunction",
+            func: {
+              arm: () => "invokeContract",
+              invokeContract: () => ({
+                contractAddress: () => ({ mocked: true }),
+                functionName: () => ({ toString: () => "increment" }),
+                args: () => [],
+              }),
+            },
+          },
+        ],
+      } as unknown as ReturnType<typeof TransactionBuilder.fromXDR>);
+      mockFromScAddress.mockReturnValue({ toString: () => id });
+
+      const result1 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          stateTracker,
+        },
+      );
+
+      const executeResult = await executeContract(
+        networkConfig.rpcUrl,
+        networkConfig,
+        MOCK_SIGNED_XDR,
+        { maxAttempts: 1, intervalMs: 0 },
+        undefined,
+        stateTracker,
+      );
+
+      const result2 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          stateTracker,
+        },
+      );
+
+      expect(result1.status).toBe("ok");
+      expect(executeResult.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+      expect(fromXdrSpy).toHaveBeenCalled();
+    });
+
+    it("does not invalidate cached reads when contract execution fails", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 60_000,
+      });
+      mockGetTransaction.mockResolvedValue({ status: "FAILED", txHash: "tx-hash" });
+      vi.spyOn(TransactionBuilder, "fromXDR").mockReturnValue({
+        operations: [
+          {
+            type: "invokeHostFunction",
+            func: {
+              arm: () => "invokeContract",
+              invokeContract: () => ({
+                contractAddress: () => ({ mocked: true }),
+                functionName: () => ({ toString: () => "increment" }),
+                args: () => [],
+              }),
+            },
+          },
+        ],
+      } as unknown as ReturnType<typeof TransactionBuilder.fromXDR>);
+      mockFromScAddress.mockReturnValue({ toString: () => id });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      const executeResult = await executeContract(
+        networkConfig.rpcUrl,
+        networkConfig,
+        MOCK_SIGNED_XDR,
+        { maxAttempts: 1, intervalMs: 0 },
+        undefined,
+        stateTracker,
+      );
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(executeResult.status).toBe("error");
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("invalidates cached reads when the latest contract event changes", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-1", contractId: id }] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-1", contractId: id }] } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ _embedded: { records: [{ id: "evt-2", contractId: id }] } }),
+        });
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 0,
+        fetch: fetchMock,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps cached reads when event lookup fails", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      const fetchMock = vi.fn().mockRejectedValue(new Error("event lookup failed"));
+      const stateTracker = createContractStateTracker(cache, networkConfig.horizonUrl, {
+        eventCheckIntervalMs: 0,
+        fetch: fetchMock,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      await readContract(networkConfig.rpcUrl, networkConfig.horizonUrl, networkConfig, {
+        contractId: id,
+        method: "balance",
+        args: [arg],
+        publicKey: Keypair.random().publicKey(),
+        cache,
+        stateTracker,
+      });
+
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it("generates different cache keys for different arguments", async () => {
       const cache = new MemoryCache();
       const id = contractId();
@@ -1235,6 +1593,32 @@ describe.skip("soroban contract ABI validation", () => {
       );
 
       expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("preserves the original Horizon error as cause when source account load fails (#252)", async () => {
+      const horizonError = new Error("Account not found (404)");
+      (horizonError as any).response = { status: 404, data: { detail: "not found" } };
+      mockLoadAccount.mockRejectedValueOnce(horizonError);
+
+      const result = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: contractId(),
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
+        expect(result.error.message).toContain("Failed to read contract");
+        // The cause should be the original Horizon error, not a wrapped new Error
+        expect(result.error.cause).toBe(horizonError);
+      }
     });
   });
 
@@ -2353,5 +2737,133 @@ describe("parseContractResult (#119)", () => {
     expect(() =>
       parseContractResult(xdr.ScVal.scvU32(1), "address"),
     ).toThrow(TypeError);
+  });
+});
+
+describe("validateContractData (#141)", () => {
+  it("accepts valid typed contract data", () => {
+    const result = validateContractData(
+      contractId(),
+      xdr.ScVal.scvSymbol("balance"),
+      123n,
+      "u128",
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
+    expect(result.type).toBe("u128");
+  });
+
+  it("infers valid ScVal data when type is omitted", () => {
+    const result = validateContractData(
+      contractId(),
+      xdr.ScVal.scvSymbol("owner"),
+      xdr.ScVal.scvString(Buffer.from("alice", "utf8")),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.type).toBe("string");
+  });
+
+  it("rejects invalid contract IDs and void keys", () => {
+    const result = validateContractData(
+      "not-a-contract",
+      undefined,
+      true,
+      "bool",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "contractId" }),
+        expect.objectContaining({ field: "key" }),
+      ]),
+    );
+  });
+
+  it("rejects values outside the requested integer type", () => {
+    const result = validateContractData(
+      contractId(),
+      "counter",
+      -1,
+      "u32",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      field: "value",
+      message: expect.stringContaining("u32"),
+    });
+  });
+
+  it("rejects ScVal values that do not match the requested type", () => {
+    const result = validateContractData(
+      contractId(),
+      "flag",
+      xdr.ScVal.scvBool(true),
+      "u32",
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      field: "value",
+      message: expect.stringContaining("got bool"),
+    });
+  });
+
+  it("validates Stellar account and contract address values", () => {
+    const account = Keypair.random().publicKey();
+    const valid = validateContractData(contractId(), "owner", account, "address");
+    const invalid = validateContractData(
+      contractId(),
+      "owner",
+      "not-address",
+      "address",
+    );
+
+    expect(valid.valid).toBe(true);
+    expect(invalid.valid).toBe(false);
+  });
+});
+
+describe("executeContract sorobanPoll validation (#285)", () => {
+  it("returns CONTRACT_INVOKE_FAILED when maxAttempts is 0 or negative", async () => {
+    const res0 = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { maxAttempts: 0 },
+    );
+    expect(res0.status).toBe("error");
+    if (res0.status === "error") {
+      expect(res0.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+      expect(res0.error.message).toBe("sorobanPoll.maxAttempts must be a positive integer.");
+    }
+
+    const resNeg = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { maxAttempts: -1 },
+    );
+    expect(resNeg.status).toBe("error");
+    if (resNeg.status === "error") {
+      expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+    }
+  });
+
+  it("returns CONTRACT_INVOKE_FAILED when intervalMs is negative", async () => {
+    const resNeg = await executeContract(
+      "https://rpc.example.com",
+      { network: "testnet", rpcUrl: "https://rpc.example.com", horizonUrl: "https://horizon.example.com" },
+      "some-signed-xdr",
+      { intervalMs: -100 },
+    );
+    expect(resNeg.status).toBe("error");
+    if (resNeg.status === "error") {
+      expect(resNeg.error.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+      expect(resNeg.error.message).toBe("sorobanPoll.intervalMs must be a non-negative number.");
+    }
   });
 });
