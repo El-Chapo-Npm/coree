@@ -293,6 +293,11 @@ export type {
   PairCreatedEvent,
   SwapEvent,
 } from "./soroban/decodeContractEvent";
+export { getFactoryStatistics } from "./soroban/factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./soroban/factoryStatistics";
 export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
