@@ -47,6 +47,17 @@ export { validateContractAbi } from "./validateContractAbi";
 export { SorobanSimulator } from "./simulator";
 export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
+export {
+  validateDeployConfig,
+  collectDeployConfigIssues,
+  formatDeployConfigIssues,
+  DEPLOY_SALT_BYTES,
+} from "./validateDeployConfig";
+export type {
+  DeployConfigInput,
+  DeployConfigIssue,
+  ValidatedDeployConfig,
+} from "./validateDeployConfig";
 export { getFactoryStatistics } from "./factoryStatistics";
 export type {
   FactoryStatistics,

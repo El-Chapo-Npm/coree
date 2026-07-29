@@ -299,6 +299,17 @@ export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
+  validateDeployConfig,
+  collectDeployConfigIssues,
+  formatDeployConfigIssues,
+  DEPLOY_SALT_BYTES,
+} from "./soroban/validateDeployConfig";
+export type {
+  DeployConfigInput,
+  DeployConfigIssue,
+  ValidatedDeployConfig,
+} from "./soroban/validateDeployConfig";
+export {
   decodeContractEvent,
   decodeFactoryEvent,
   decodeRouterEvent,
