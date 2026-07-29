@@ -42,6 +42,10 @@ export type {
   WalletState,
 } from "./wallet/types";
 
+// ─── Wallet Status Tracker ─────────────────────────────────────────────────────
+export { WalletStatusTracker, getAdapterName, truncatePublicKey, getAriaLabel, getStatusColorClass } from "./wallet/walletStatusTracker";
+export type { WalletConnectionStatus, WalletStatus, WalletStatusListener, WalletStatusUnsubscribe, WalletStatusTrackerConfig } from "./wallet/walletStatusTracker";
+
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
