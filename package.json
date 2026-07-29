@@ -24,6 +24,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "typecheck:examples": "tsc -p examples/router-swap/tsconfig.json",
     "test": "vitest --run",
     "test:watch": "vitest",
     "bench": "vitest bench",
