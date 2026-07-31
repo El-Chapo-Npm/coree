@@ -49,6 +49,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Streaming](#streaming)
 - [Networks](#networks)
 - [Testing Utilities](#testing-utilities)
+- [Examples](#examples)
 - [Design Principles](#design-principles)
 - [License](#license)
 
@@ -196,6 +197,29 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Contract deployment
+
+`buildContractDeploy` validates its configuration before any network call, so a
+missing endpoint or a malformed deployer address fails immediately with an
+`INVALID_CONFIG` error naming every offending field and how to fix it. Call the
+same check directly from a deployment script to fail before you spend a build:
+
+```ts
+import { validateDeployConfig, collectDeployConfigIssues } from "sorokit-core";
+
+const check = validateDeployConfig({ rpcUrl, horizonUrl, networkConfig, deployer });
+if (check.status === "error") {
+  console.error(check.error.message);
+  // Deployment configuration is invalid — 2 problems found:
+  //   1. rpcUrl — rpcUrl is missing. Fix: Set rpcUrl to the Soroban RPC endpoint …
+  //   2. deployer — deployer is not a valid Stellar public key: "GNOPE". Fix: …
+  process.exit(1);
+}
+
+// Or render the issues yourself — each has { field, reason, hint }
+const issues = collectDeployConfigIssues({ rpcUrl, horizonUrl, networkConfig, deployer });
+```
+
 ---
 
 ## Result Type
@@ -320,6 +344,16 @@ const adapter = createMockWalletAdapter();
 
 ---
 
+## Examples
+
+| Example                                       | Shows                                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| [`examples/router-swap`](examples/router-swap) | Frontend router integration: quote → swap → transaction tracking, with wallet signing and router error handling |
+
+Examples are type-checked against the SDK source with `npm run typecheck:examples`.
+
+---
+
 ## Contributing
 
 Pull requests are welcome. For significant changes, please open an issue first to discuss what you'd like to change.
@@ -329,3 +363,27 @@ Pull requests are welcome. For significant changes, please open an issue first t
 ## License
 
 [MIT](LICENSE)
+# Factory statistics
+
+API servers can expose `getFactoryStatistics` at a route such as
+`GET /factory/:id/statistics`. Supply an adapter that reads the factory pair
+count and deployment metadata; the function returns Sorokit's standard
+structured JSON result.
+
+# Decode factory and router events
+
+```ts
+import { decodeContractEvent, queryContractEvents } from "sorokit-core";
+
+const events = await queryContractEvents(factoryId, undefined, { horizonUrl });
+for (const event of events) {
+  const decoded = decodeContractEvent(event);
+  if (decoded?.type === "factory.pair_created") {
+    console.log(decoded.data);
+  }
+}
+```
+
+Pass custom decoders as the second argument to support application-specific
+events. Custom decoders run first, so adding new built-in event types remains
+backward-compatible.

@@ -28,6 +28,18 @@ export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export type { InvokeContractOptions } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
+export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
+export { getContractMethods } from "./contractMetadata";
+export { ContractInteractionBuilder } from "./contractInteractionBuilder";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./contractInteractionBuilder";
 export { subscribeContractEvents, queryContractEvents, streamContractEvents } from "./subscribeContractEvents";
 export { getContractMethods, parseContractSchema, validateContractArgs } from "./contractMetadata";
 export type { ContractSchema, ContractMethodSchema, ContractMethodParam } from "./contractMetadata";
@@ -35,6 +47,33 @@ export { validateContractAbi } from "./validateContractAbi";
 export { SorobanSimulator } from "./simulator";
 export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
+export {
+  validateDeployConfig,
+  collectDeployConfigIssues,
+  formatDeployConfigIssues,
+  DEPLOY_SALT_BYTES,
+} from "./validateDeployConfig";
+export type {
+  DeployConfigInput,
+  DeployConfigIssue,
+  ValidatedDeployConfig,
+} from "./validateDeployConfig";
+export { getFactoryStatistics } from "./factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./factoryStatistics";
+export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./decodeContractEvent";
 export {
   snapshotContractState,
   compareSnapshots,

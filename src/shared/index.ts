@@ -1,4 +1,5 @@
 export * from "./cache";
+export * from "./config";
 export * from "./constants";
 export * from "./errors";
 export * from "./logger";
@@ -9,3 +10,4 @@ export * from "./tracing";
 // Note: shared/types.ts re-exports from the above — do not re-export it here
 // to avoid circular barrel exports
 export * from "./validateIssuer";
+export * from "./validateToken";

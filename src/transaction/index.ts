@@ -132,6 +132,7 @@ export { fetchCongestionFeeEstimate } from "./estimateFee";
 export {
   findSwapPath,
   buildPathPaymentTransaction,
+  describeRouterSwapFailure,
 } from "./pathPayment";
 export type {
   SwapRoute,
@@ -180,6 +181,36 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+// ─── Webhook support (#208) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  verifySignature,
+} from "./webhooks";
+export type {
+  WebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+} from "./webhooks";
+
+// ─── Asset pair trading logic (#209) ───────────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
+} from "./assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./assetPairs";
 export {
   buildMultiSigEnvelope,
   collectSignature,

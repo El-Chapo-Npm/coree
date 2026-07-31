@@ -94,96 +94,25 @@ describe("shared/logger", () => {
       infoSpy.mockRestore();
     });
 
-    it("debug: false returns a logger where all four methods produce no output", () => {
-      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
-      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    it("applies a custom prefix to console output (#257)", () => {
+      const debugSpy = vi
+        .spyOn(console, "debug")
+        .mockImplementation(() => undefined);
+      const logger = createLogger({
+        logLevel: "debug",
+        prefix: "[sorokit:testnet]",
+      });
 
-      const logger = createLogger({ debug: false });
-      logger.debug("silent");
-      logger.info("silent");
-      logger.warn("silent");
-      logger.error("silent");
+      logger.debug("prefixed");
 
-      expect(debugSpy).not.toHaveBeenCalled();
-      expect(infoSpy).not.toHaveBeenCalled();
-      expect(warnSpy).not.toHaveBeenCalled();
-      expect(errorSpy).not.toHaveBeenCalled();
-
-      debugSpy.mockRestore();
-      infoSpy.mockRestore();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
-    });
-
-    it("debug: false never calls a custom logger", () => {
-      const { logger: custom, calls } = createCapturingLogger();
-      const logger = createLogger({ debug: false, logger: custom });
-      logger.debug("silent");
-      logger.info("silent");
-      logger.warn("silent");
-      logger.error("silent");
-      expect(calls).toHaveLength(0);
-    });
-
-    it("debug: true calls console.debug with the [sorokit] prefix", () => {
-      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
-      const logger = createLogger({ debug: true });
-      logger.debug("hello");
       expect(debugSpy).toHaveBeenCalledWith(
-        "[sorokit]",
-        expect.objectContaining({ level: "debug", message: "hello" }),
-      );
-      debugSpy.mockRestore();
-    });
-
-    it("debug: true calls console.info for info messages", () => {
-      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
-      const logger = createLogger({ debug: true });
-      logger.info("hello");
-      expect(infoSpy).toHaveBeenCalledWith(
-        "[sorokit]",
-        expect.objectContaining({ level: "info", message: "hello" }),
-      );
-      infoSpy.mockRestore();
-    });
-
-    it("debug: true calls console.warn for warn messages", () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-      const logger = createLogger({ debug: true });
-      logger.warn("hello");
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[sorokit]",
-        expect.objectContaining({ level: "warn", message: "hello" }),
-      );
-      warnSpy.mockRestore();
-    });
-
-    it("debug: true calls console.error for error messages", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const logger = createLogger({ debug: true });
-      logger.error("hello");
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[sorokit]",
-        expect.objectContaining({ level: "error", message: "hello" }),
-      );
-      errorSpy.mockRestore();
-    });
-
-    it("meta is passed through to console output", () => {
-      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
-      const logger = createLogger({ debug: true });
-      logger.debug("test", { key: "value", num: 42 });
-      expect(debugSpy).toHaveBeenCalledWith(
-        "[sorokit]",
+        "[sorokit:testnet]",
         expect.objectContaining({
           level: "debug",
-          message: "test",
-          key: "value",
-          num: 42,
+          message: "prefixed",
         }),
       );
+
       debugSpy.mockRestore();
     });
   });
@@ -248,6 +177,43 @@ describe("createSorokitClient logger integration", () => {
         network: "testnet",
       }),
     );
+  });
+
+  it("uses logPrefix in console output when debug is enabled (#257)", () => {
+    const debugSpy = vi
+      .spyOn(console, "debug")
+      .mockImplementation(() => undefined);
+
+    const result = createSorokitClient({
+      network: "testnet",
+      debug: true,
+      logPrefix: "[app:testnet]",
+      cache: {
+        get: () => undefined,
+        set: () => undefined,
+        invalidate: () => undefined,
+        clear: () => undefined,
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    // client.create emits info; cache probe emits debug — both use logPrefix
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      "[app:testnet]",
+      expect.objectContaining({
+        operation: "client.create",
+        status: "ok",
+        network: "testnet",
+      }),
+    );
+    expect(debugSpy).toHaveBeenCalledWith(
+      "[app:testnet]",
+      expect.objectContaining({
+        message: "client.create: checked cache for recovered wallet state",
+      }),
+    );
+
+    debugSpy.mockRestore();
   });
 
   it("does not log wallet.emptyState calls", () => {

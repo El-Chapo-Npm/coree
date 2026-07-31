@@ -10,6 +10,7 @@ export { createSorokitClient } from "./client/createSorokitClient";
 export type {
   SorokitClient,
   SorokitClientConfig,
+  HealthCheckReport,
 } from "./client/createSorokitClient";
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
@@ -41,6 +42,10 @@ export type {
   WalletFeature,
   WalletState,
 } from "./wallet/types";
+
+// ─── Wallet Status Tracker ─────────────────────────────────────────────────────
+export { WalletStatusTracker, getAdapterName, truncatePublicKey, getAriaLabel, getStatusColorClass } from "./wallet/walletStatusTracker";
+export type { WalletConnectionStatus, WalletStatus, WalletStatusListener, WalletStatusUnsubscribe, WalletStatusTrackerConfig } from "./wallet/walletStatusTracker";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
@@ -148,6 +153,7 @@ export { calculateFeeTiers, fetchCongestionFeeEstimate } from "./transaction/est
 export {
   findSwapPath,
   buildPathPaymentTransaction,
+  describeRouterSwapFailure,
 } from "./transaction/pathPayment";
 export type {
   SwapRoute,
@@ -202,6 +208,21 @@ export type {
   TransactionStatus,
   TrustlineParams,
 } from "./transaction/types";
+
+// ─── Asset pair trading logic (#209, #354) ────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
+} from "./transaction/assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./transaction/assetPairs";
 export { validateTransaction } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
@@ -257,6 +278,17 @@ export type {
   ContractDataValidationResult,
 } from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
+export { getContractMethods } from "./soroban/contractMetadata";
+export { ContractInteractionBuilder } from "./soroban";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./soroban";
 export { getContractMethods, parseContractSchema, validateContractArgs } from "./soroban/contractMetadata";
 export type {
   ContractSchema,
@@ -266,6 +298,33 @@ export type {
 export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export {
+  validateDeployConfig,
+  collectDeployConfigIssues,
+  formatDeployConfigIssues,
+  DEPLOY_SALT_BYTES,
+} from "./soroban/validateDeployConfig";
+export type {
+  DeployConfigInput,
+  DeployConfigIssue,
+  ValidatedDeployConfig,
+} from "./soroban/validateDeployConfig";
+export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./soroban/decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./soroban/decodeContractEvent";
+export { getFactoryStatistics } from "./soroban/factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./soroban/factoryStatistics";
 export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
@@ -317,6 +376,16 @@ export type {
   RateLimiterMetrics,
   RateLimiterEventType,
 } from "./shared/utils";
+
+// ─── Token validation utilities (#352) ────────────────────────────────────────
+export {
+  validateAssetCode,
+  validateAssetIssuer,
+  validateTokenAsset,
+  isSameAsset,
+  normalizePairId,
+} from "./shared/validateToken";
+export type { TokenAsset } from "./shared/validateToken";
 
 // ─── Distributed tracing (#212) ────────────────────────────────────────────
 export {
