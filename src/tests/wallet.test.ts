@@ -136,6 +136,25 @@ describe("wallet adapters", () => {
         expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
       }
     });
+
+    it("disconnect() always returns status ok with undefined data (#291)", async () => {
+      const result = await new XBullAdapter(mockKit()).disconnect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
+    });
+
+    it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
+      const result = await new XBullAdapter(mockKit()).signTransaction({
+        transactionXdr: "xdr",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
   });
 
   describe("LobstrAdapter", () => {
@@ -145,6 +164,25 @@ describe("wallet adapters", () => {
 
     it("connect() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
       const result = await new LobstrAdapter(mockKit()).connect();
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
+
+    it("disconnect() always returns status ok with undefined data (#291)", async () => {
+      const result = await new LobstrAdapter(mockKit()).disconnect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
+    });
+
+    it("signTransaction() returns status error with WALLET_BROWSER_ONLY in Node", async () => {
+      const result = await new LobstrAdapter(mockKit()).signTransaction({
+        transactionXdr: "xdr",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
       expect(result.status).toBe("error");
       if (result.status === "error") {
         expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
