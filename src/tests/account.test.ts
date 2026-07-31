@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatAddress } from "../shared/utils";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { AccountInfo } from "../account/types";
@@ -15,6 +15,9 @@ vi.mock("../shared", async () => {
     ...actual,
     sleep: vi.fn((ms: number) => {
       accountMockState.sleepCalls.push(ms);
+      if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
       return Promise.resolve();
     }),
   };
@@ -206,6 +209,93 @@ describe("account", () => {
         3000,
         3000,
       ]);
+    });
+
+    describe("emitOnStart: false and interval clamping behavior (#276)", () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("emitOnStart: false with maxPolls: 1 yields exactly one result after the first sleep", async () => {
+        vi.useFakeTimers();
+        accountMockState.results = [createAccount("1")];
+
+        const stream = streamAccount("https://horizon.test", "G...", {
+          emitOnStart: false,
+          maxPolls: 1,
+          intervalMs: 2000,
+        });
+
+        let resolved = false;
+        const promise = stream.next().then((res) => {
+          resolved = true;
+          return res;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+        expect(accountMockState.sleepCalls).toEqual([2000]);
+
+        await vi.advanceTimersByTimeAsync(2000);
+
+        const result = await promise;
+        expect(resolved).toBe(true);
+        expect(result.done).toBe(false);
+        expect(result.value?.status).toBe("ok");
+        if (result.value?.status === "ok") {
+          expect(result.value.data.sequence).toBe("1");
+        }
+
+        const nextResult = await stream.next();
+        expect(nextResult.done).toBe(true);
+      });
+
+      it("intervalMs: 500 is clamped to 1000ms (verifiable via fake timers)", async () => {
+        vi.useFakeTimers();
+        accountMockState.results = [createAccount("1")];
+
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const stream = streamAccount("https://horizon.test", "G...", {
+          intervalMs: 500,
+          emitOnStart: false,
+          maxPolls: 1,
+        });
+
+        let resolved = false;
+        const promise = stream.next().then((res) => {
+          resolved = true;
+          return res;
+        });
+
+        await Promise.resolve();
+        expect(accountMockState.sleepCalls).toEqual([1000]);
+        expect(resolved).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(500);
+        expect(resolved).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(500);
+        const result = await promise;
+        expect(resolved).toBe(true);
+        expect(result.done).toBe(false);
+
+        warnSpy.mockRestore();
+      });
+
+      it("emitOnStart: true with maxPolls: 0 yields nothing", async () => {
+        accountMockState.results = [createAccount("1")];
+
+        const stream = streamAccount("https://horizon.test", "G...", {
+          emitOnStart: true,
+          maxPolls: 0,
+        });
+
+        const result = await stream.next();
+        expect(result.done).toBe(true);
+        expect(result.value).toBeUndefined();
+        expect(accountMockState.sleepCalls).toEqual([]);
+      });
     });
   });
 
