@@ -93,6 +93,99 @@ describe("shared/logger", () => {
 
       infoSpy.mockRestore();
     });
+
+    it("debug: false returns a logger where all four methods produce no output", () => {
+      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const logger = createLogger({ debug: false });
+      logger.debug("silent");
+      logger.info("silent");
+      logger.warn("silent");
+      logger.error("silent");
+
+      expect(debugSpy).not.toHaveBeenCalled();
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      debugSpy.mockRestore();
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it("debug: false never calls a custom logger", () => {
+      const { logger: custom, calls } = createCapturingLogger();
+      const logger = createLogger({ debug: false, logger: custom });
+      logger.debug("silent");
+      logger.info("silent");
+      logger.warn("silent");
+      logger.error("silent");
+      expect(calls).toHaveLength(0);
+    });
+
+    it("debug: true calls console.debug with the [sorokit] prefix", () => {
+      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+      const logger = createLogger({ debug: true });
+      logger.debug("hello");
+      expect(debugSpy).toHaveBeenCalledWith(
+        "[sorokit]",
+        expect.objectContaining({ level: "debug", message: "hello" }),
+      );
+      debugSpy.mockRestore();
+    });
+
+    it("debug: true calls console.info for info messages", () => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+      const logger = createLogger({ debug: true });
+      logger.info("hello");
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[sorokit]",
+        expect.objectContaining({ level: "info", message: "hello" }),
+      );
+      infoSpy.mockRestore();
+    });
+
+    it("debug: true calls console.warn for warn messages", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const logger = createLogger({ debug: true });
+      logger.warn("hello");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[sorokit]",
+        expect.objectContaining({ level: "warn", message: "hello" }),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it("debug: true calls console.error for error messages", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const logger = createLogger({ debug: true });
+      logger.error("hello");
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[sorokit]",
+        expect.objectContaining({ level: "error", message: "hello" }),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("meta is passed through to console output", () => {
+      const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+      const logger = createLogger({ debug: true });
+      logger.debug("test", { key: "value", num: 42 });
+      expect(debugSpy).toHaveBeenCalledWith(
+        "[sorokit]",
+        expect.objectContaining({
+          level: "debug",
+          message: "test",
+          key: "value",
+          num: 42,
+        }),
+      );
+      debugSpy.mockRestore();
+    });
   });
 
   describe("withLogging", () => {
