@@ -207,6 +207,109 @@ describe("account", () => {
         3000,
       ]);
     });
+
+    describe("streamAccount emit/clamp behavior (#276)", () => {
+      it("emitOnStart false with maxPolls 1 yields exactly one result after the first sleep", async () => {
+        vi.useFakeTimers();
+
+        const shared = await import("../shared");
+        const sleepMock = vi.mocked(shared.sleep);
+        sleepMock.mockImplementation((ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms))
+        );
+
+        try {
+          accountMockState.results = [createAccount("1")];
+
+          const stream = streamAccount("https://horizon.test", "G...", {
+            intervalMs: 1000,
+            emitOnStart: false,
+            maxPolls: 1,
+          });
+
+          const first = stream.next();
+
+          let settled = false;
+          first.then(() => { settled = true; });
+          expect(settled).toBe(false);
+
+          await vi.advanceTimersByTimeAsync(1000);
+          const result = await first;
+          expect(result.done).toBe(false);
+          expect(result.value?.status).toBe("ok");
+          if (result.value?.status === "ok") {
+            expect(result.value.data.sequence).toBe("1");
+          }
+
+          const second = await stream.next();
+          expect(second.done).toBe(true);
+        } finally {
+          sleepMock.mockImplementation((ms: number) => {
+            accountMockState.sleepCalls.push(ms);
+            return Promise.resolve();
+          });
+          vi.useRealTimers();
+        }
+      }, 15000);
+
+      it("intervalMs 500 is clamped to 1000ms verifiable via fake timers", async () => {
+        vi.useFakeTimers();
+
+        const shared = await import("../shared");
+        const sleepMock = vi.mocked(shared.sleep);
+        sleepMock.mockImplementation((ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms))
+        );
+
+        try {
+          accountMockState.results = [createAccount("1"), createAccount("2")];
+
+          const stream = streamAccount("https://horizon.test", "G...", {
+            intervalMs: 500,
+            maxPolls: 2,
+          });
+
+          const first = await stream.next();
+          expect(first.done).toBe(false);
+          expect(first.value?.status).toBe("ok");
+
+          const secondPromise = stream.next();
+          let settled = false;
+          secondPromise.then(() => { settled = true; });
+          expect(settled).toBe(false);
+
+          await vi.advanceTimersByTimeAsync(999);
+          expect(settled).toBe(false);
+
+          await vi.advanceTimersByTimeAsync(1);
+          const result2 = await secondPromise;
+          expect(result2.done).toBe(false);
+          expect(result2.value?.status).toBe("ok");
+        } finally {
+          sleepMock.mockImplementation((ms: number) => {
+            accountMockState.sleepCalls.push(ms);
+            return Promise.resolve();
+          });
+          vi.useRealTimers();
+        }
+      }, 15000);
+
+      it("emitOnStart true with maxPolls 0 yields nothing", async () => {
+        vi.useFakeTimers();
+
+        try {
+          const stream = streamAccount("https://horizon.test", "G...", {
+            emitOnStart: true,
+            maxPolls: 0,
+          });
+
+          const result = await stream.next();
+          expect(result.done).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
+      }, 10000);
+    });
   });
 
   describe("deepEqual", () => {
