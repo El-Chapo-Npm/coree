@@ -64,6 +64,41 @@ describe("network/resolveNetwork", () => {
       expect(result.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
     }
   });
+
+  it("applies both horizonUrl and rpcUrl overrides simultaneously and preserves networkPassphrase", () => {
+    const result = resolveNetwork("testnet", {
+      horizonUrl: "https://h.example.com",
+      rpcUrl: "https://r.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.horizonUrl).toBe("https://h.example.com");
+      expect(result.data.rpcUrl).toBe("https://r.example.com");
+      expect(result.data.networkPassphrase).toContain("Test SDF");
+    }
+  });
+
+  it("networkPassphrase is never overridable via NetworkOverrides", () => {
+    const result = resolveNetwork("testnet", {
+      horizonUrl: "https://custom-horizon.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.networkPassphrase).toBe(
+        "Test SDF Network ; September 2015",
+      );
+    }
+  });
+
+  it("empty overrides object returns the base config unchanged", () => {
+    const result = resolveNetwork("testnet", {});
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.network).toBe("testnet");
+      expect(result.data.horizonUrl).toContain("testnet");
+      expect(result.data.networkPassphrase).toContain("Test SDF");
+    }
+  });
 });
 
 describe("network/getNetwork (delegates to resolveNetwork)", () => {

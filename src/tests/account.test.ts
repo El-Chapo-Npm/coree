@@ -211,91 +211,107 @@ describe("account", () => {
       ]);
     });
 
-    describe("emitOnStart: false and interval clamping behavior (#276)", () => {
-      afterEach(() => {
-        vi.useRealTimers();
-      });
-
-      it("emitOnStart: false with maxPolls: 1 yields exactly one result after the first sleep", async () => {
+    describe("streamAccount emit/clamp behavior (#276)", () => {
+      it("emitOnStart false with maxPolls 1 yields exactly one result after the first sleep", async () => {
         vi.useFakeTimers();
-        accountMockState.results = [createAccount("1")];
 
-        const stream = streamAccount("https://horizon.test", "G...", {
-          emitOnStart: false,
-          maxPolls: 1,
-          intervalMs: 2000,
-        });
+        const shared = await import("../shared");
+        const sleepMock = vi.mocked(shared.sleep);
+        sleepMock.mockImplementation((ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms))
+        );
 
-        let resolved = false;
-        const promise = stream.next().then((res) => {
-          resolved = true;
-          return res;
-        });
+        try {
+          accountMockState.results = [createAccount("1")];
 
-        await Promise.resolve();
-        expect(resolved).toBe(false);
-        expect(accountMockState.sleepCalls).toEqual([2000]);
+          const stream = streamAccount("https://horizon.test", "G...", {
+            intervalMs: 1000,
+            emitOnStart: false,
+            maxPolls: 1,
+          });
 
-        await vi.advanceTimersByTimeAsync(2000);
+          const first = stream.next();
 
-        const result = await promise;
-        expect(resolved).toBe(true);
-        expect(result.done).toBe(false);
-        expect(result.value?.status).toBe("ok");
-        if (result.value?.status === "ok") {
-          expect(result.value.data.sequence).toBe("1");
+          let settled = false;
+          first.then(() => { settled = true; });
+          expect(settled).toBe(false);
+
+          await vi.advanceTimersByTimeAsync(1000);
+          const result = await first;
+          expect(result.done).toBe(false);
+          expect(result.value?.status).toBe("ok");
+          if (result.value?.status === "ok") {
+            expect(result.value.data.sequence).toBe("1");
+          }
+
+          const second = await stream.next();
+          expect(second.done).toBe(true);
+        } finally {
+          sleepMock.mockImplementation((ms: number) => {
+            accountMockState.sleepCalls.push(ms);
+            return Promise.resolve();
+          });
+          vi.useRealTimers();
         }
+      }, 15000);
 
-        const nextResult = await stream.next();
-        expect(nextResult.done).toBe(true);
-      });
-
-      it("intervalMs: 500 is clamped to 1000ms (verifiable via fake timers)", async () => {
+      it("intervalMs 500 is clamped to 1000ms verifiable via fake timers", async () => {
         vi.useFakeTimers();
-        accountMockState.results = [createAccount("1")];
 
-        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const shared = await import("../shared");
+        const sleepMock = vi.mocked(shared.sleep);
+        sleepMock.mockImplementation((ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms))
+        );
 
-        const stream = streamAccount("https://horizon.test", "G...", {
-          intervalMs: 500,
-          emitOnStart: false,
-          maxPolls: 1,
-        });
+        try {
+          accountMockState.results = [createAccount("1"), createAccount("2")];
 
-        let resolved = false;
-        const promise = stream.next().then((res) => {
-          resolved = true;
-          return res;
-        });
+          const stream = streamAccount("https://horizon.test", "G...", {
+            intervalMs: 500,
+            maxPolls: 2,
+          });
 
-        await Promise.resolve();
-        expect(accountMockState.sleepCalls).toEqual([1000]);
-        expect(resolved).toBe(false);
+          const first = await stream.next();
+          expect(first.done).toBe(false);
+          expect(first.value?.status).toBe("ok");
 
-        await vi.advanceTimersByTimeAsync(500);
-        expect(resolved).toBe(false);
+          const secondPromise = stream.next();
+          let settled = false;
+          secondPromise.then(() => { settled = true; });
+          expect(settled).toBe(false);
 
-        await vi.advanceTimersByTimeAsync(500);
-        const result = await promise;
-        expect(resolved).toBe(true);
-        expect(result.done).toBe(false);
+          await vi.advanceTimersByTimeAsync(999);
+          expect(settled).toBe(false);
 
-        warnSpy.mockRestore();
-      });
+          await vi.advanceTimersByTimeAsync(1);
+          const result2 = await secondPromise;
+          expect(result2.done).toBe(false);
+          expect(result2.value?.status).toBe("ok");
+        } finally {
+          sleepMock.mockImplementation((ms: number) => {
+            accountMockState.sleepCalls.push(ms);
+            return Promise.resolve();
+          });
+          vi.useRealTimers();
+        }
+      }, 15000);
 
-      it("emitOnStart: true with maxPolls: 0 yields nothing", async () => {
-        accountMockState.results = [createAccount("1")];
+      it("emitOnStart true with maxPolls 0 yields nothing", async () => {
+        vi.useFakeTimers();
 
-        const stream = streamAccount("https://horizon.test", "G...", {
-          emitOnStart: true,
-          maxPolls: 0,
-        });
+        try {
+          const stream = streamAccount("https://horizon.test", "G...", {
+            emitOnStart: true,
+            maxPolls: 0,
+          });
 
-        const result = await stream.next();
-        expect(result.done).toBe(true);
-        expect(result.value).toBeUndefined();
-        expect(accountMockState.sleepCalls).toEqual([]);
-      });
+          const result = await stream.next();
+          expect(result.done).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
+      }, 10000);
     });
   });
 

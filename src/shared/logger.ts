@@ -159,7 +159,6 @@ export function createTracedLogger(
   };
 }
 
-
 /**
  * Log the start and result of an async SDK operation.
  * Emits debug on start, info on success, warn on handled errors.
