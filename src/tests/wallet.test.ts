@@ -184,7 +184,9 @@ describe("wallet module functions", () => {
   });
 
   it("disconnectWallet() returns status ok with clean state", async () => {
-    const result = await disconnectWallet(new FreighterAdapter(mockKit()));
+    const adapter = new FreighterAdapter(mockKit());
+    vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
+    const result = await disconnectWallet(adapter);
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       expect(result.data.connected).toBe(false);
