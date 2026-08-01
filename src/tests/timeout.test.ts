@@ -154,7 +154,7 @@ describe("timeout configuration", () => {
     });
 
     it("should use global timeout over default", () => {
-      const global = 10000;
+      const global = 15000;
       const defaultTimeout = DEFAULT_TIMEOUTS.account_get;
 
       const result = getTimeout("account_get", undefined, global);

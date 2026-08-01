@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatAddress } from "../shared/utils";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { AccountInfo } from "../account/types";
@@ -15,6 +15,9 @@ vi.mock("../shared", async () => {
     ...actual,
     sleep: vi.fn((ms: number) => {
       accountMockState.sleepCalls.push(ms);
+      if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
       return Promise.resolve();
     }),
   };
