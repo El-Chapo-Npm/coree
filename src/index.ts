@@ -25,7 +25,11 @@ export {
   signTransactionOffline,
 } from "./wallet";
 export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
-export { FreighterAdapter, LobstrAdapter, XBullAdapter } from "./wallet/adapters";
+export {
+  FreighterAdapter,
+  LobstrAdapter,
+  XBullAdapter,
+} from "./wallet/adapters";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export { WalletType } from "./wallet/types";
@@ -44,15 +48,33 @@ export type {
 } from "./wallet/types";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
-export { WalletStatusTracker, getAdapterName, truncatePublicKey, getAriaLabel, getStatusColorClass } from "./wallet/walletStatusTracker";
-export type { WalletConnectionStatus, WalletStatus, WalletStatusListener, WalletStatusUnsubscribe, WalletStatusTrackerConfig } from "./wallet/walletStatusTracker";
+export {
+  WalletStatusTracker,
+  getAdapterName,
+  truncatePublicKey,
+  getAriaLabel,
+  getStatusColorClass,
+} from "./wallet/walletStatusTracker";
+export type {
+  WalletConnectionStatus,
+  WalletStatus,
+  WalletStatusListener,
+  WalletStatusUnsubscribe,
+  WalletStatusTrackerConfig,
+} from "./wallet/walletStatusTracker";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth, NetworkSwitcher, getNetwork, setNetwork, NETWORK_DEFAULTS } from "./network";
+export {
+  checkNetworkHealth,
+  NetworkSwitcher,
+  getNetwork,
+  setNetwork,
+  NETWORK_DEFAULTS,
+} from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -69,7 +91,11 @@ export type {
 } from "./network";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
-export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./network";
+export {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+  CircuitOpenError,
+} from "./network";
 export type {
   CircuitBreakerConfig,
   CircuitBreakerMetrics,
@@ -149,7 +175,10 @@ export type {
   FeeTiers,
   CongestionFeeEstimate,
 } from "./transaction/estimateFee";
-export { calculateFeeTiers, fetchCongestionFeeEstimate } from "./transaction/estimateFee";
+export {
+  calculateFeeTiers,
+  fetchCongestionFeeEstimate,
+} from "./transaction/estimateFee";
 export {
   findSwapPath,
   buildPathPaymentTransaction,
@@ -219,10 +248,7 @@ export {
   hasExistingPair,
   resetPairRegistry,
 } from "./transaction/assetPairs";
-export type {
-  AssetPair,
-  PairPrice,
-} from "./transaction/assetPairs";
+export type { AssetPair, PairPrice } from "./transaction/assetPairs";
 export { validateTransaction } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
@@ -256,7 +282,10 @@ export { getTransactionStatus } from "./transaction/status";
 
 // ─── Soroban simulator (#210) ──────────────────────────────────────────────────
 export { SorobanSimulator } from "./soroban/simulator";
-export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./soroban/simulator";
+export type {
+  SimulatedMethodResult,
+  SorobanSimulatorOptions,
+} from "./soroban/simulator";
 export { setSorobanSimulator } from "./shared/serverFactory";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
@@ -269,16 +298,23 @@ export {
   decodeContractValue,
   encodeContractArgs,
 } from "./soroban/contractEncoding";
-export {
-  validateContractData,
-} from "./soroban";
+export { validateContractData } from "./soroban";
 export type {
   ContractDataType,
   ContractDataValidationIssue,
   ContractDataValidationResult,
 } from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
-export { getContractMethods } from "./soroban/contractMetadata";
+export {
+  getContractMethods,
+  parseContractSchema,
+  validateContractArgs,
+} from "./soroban/contractMetadata";
+export type {
+  ContractSchema,
+  ContractMethodSchema,
+  ContractMethodParam,
+} from "./soroban/contractMetadata";
 export { ContractInteractionBuilder } from "./soroban";
 export type {
   ContractInteractionBuilderConfig,
@@ -289,12 +325,6 @@ export type {
   BuilderStateListener,
   BuilderStateUnsubscribe,
 } from "./soroban";
-export { getContractMethods, parseContractSchema, validateContractArgs } from "./soroban/contractMetadata";
-export type {
-  ContractSchema,
-  ContractMethodSchema,
-  ContractMethodParam,
-} from "./soroban/contractMetadata";
 export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";

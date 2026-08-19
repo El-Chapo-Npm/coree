@@ -41,7 +41,10 @@ import type {
 import { readContract } from "../soroban/readContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
-import { executeContract, validateSorobanPollConfig } from "../soroban/executeContract";
+import {
+  executeContract,
+  validateSorobanPollConfig,
+} from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { createContractStateTracker } from "../soroban/contractStateTracker";
@@ -51,7 +54,11 @@ import {
   withLogging,
   sanitizeLogMeta,
 } from "../shared/logger";
-import { createTraceContext, createTracedFetch, getTraceContext } from "../shared/tracing";
+import {
+  createTraceContext,
+  createTracedFetch,
+  getTraceContext,
+} from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
 import type { TraceContext } from "../shared/tracing";
 import {
@@ -68,10 +75,18 @@ import { wrapCache } from "../shared/cache";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
-import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
+import {
+  applyErrorHandler,
+  withErrorHandling,
+  applyCodeTransformer,
+} from "../shared/errors";
 import type { ErrorCodeTransformer } from "../shared/errors";
 import { SDK_VERSION } from "../shared/constants";
-import { getTimeout, type GlobalTimeoutOverride, type OperationType } from "../shared/config";
+import {
+  getTimeout,
+  type GlobalTimeoutOverride,
+  type OperationType,
+} from "../shared/config";
 import type { NetworkType } from "../network/config";
 import { checkNetworkHealth } from "../network";
 import type { NetworkHealthReport } from "../network";
@@ -90,7 +105,11 @@ import type {
   TransactionResult,
   PathPaymentParams,
 } from "../transaction/types";
-import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
+import type {
+  FeeEstimate,
+  FeeEstimateInput,
+  FeeEstimateOptions,
+} from "../transaction/estimateFee";
 import type {
   TransactionStreamConfig,
   TransactionPage,
@@ -205,9 +224,15 @@ export interface SorokitClient {
 
   readonly wallet: {
     /** Connect and return WalletState */
-    connect(adapter: WalletAdapter, timeoutMs?: number): Promise<SorokitResult<WalletState>>;
+    connect(
+      adapter: WalletAdapter,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<WalletState>>;
     /** Disconnect and return clean WalletState */
-    disconnect(adapter: WalletAdapter, timeoutMs?: number): Promise<SorokitResult<WalletState>>;
+    disconnect(
+      adapter: WalletAdapter,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<WalletState>>;
     /** Sign a transaction XDR */
     signTransaction(
       adapter: WalletAdapter,
@@ -223,14 +248,20 @@ export interface SorokitClient {
 
   readonly account: {
     /** Fetch full account info including all balances */
-    get(publicKey: string, timeoutMs?: number): Promise<SorokitResult<AccountInfo>>;
+    get(
+      publicKey: string,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<AccountInfo>>;
     /** Fetch full account info for multiple accounts in parallel */
     getAccountsBatch(
       publicKeys: string[],
       timeoutMs?: number,
     ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
-    getBalances(publicKey: string, timeoutMs?: number): Promise<SorokitResult<AssetBalance[]>>;
+    getBalances(
+      publicKey: string,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<AssetBalance[]>>;
     /**
      * Fetch balances with optional filtering by asset code, issuer, type,
      * or zero-balance exclusion.
@@ -300,14 +331,23 @@ export interface SorokitClient {
       timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
-    submit(signedXdr: string, timeoutMs?: number): Promise<SorokitResult<TransactionResult>>;
+    submit(
+      signedXdr: string,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<TransactionResult>>;
     /** Fetch the status of a transaction by hash */
-    getStatus(hash: string, timeoutMs?: number): Promise<SorokitResult<TransactionResult>>;
+    getStatus(
+      hash: string,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<TransactionResult>>;
     /**
      * Estimate the fee for a transaction.
      * Pass a pre-built XDR or payment params to build a sample transaction.
      */
-    estimateFee(input: FeeEstimateInput, timeoutMs?: number): Promise<SorokitResult<FeeEstimate>>;
+    estimateFee(
+      input: FeeEstimateInput,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<FeeEstimate>>;
     /**
      * Stream transactions for an account by polling Horizon.
      * Yields SorokitResult<TransactionPage> on every poll.
@@ -443,7 +483,10 @@ export function validateClientConfig(
   }
 
   if (config.horizonUrl !== undefined) {
-    if (typeof config.horizonUrl !== "string" || !isValidUrlString(config.horizonUrl)) {
+    if (
+      typeof config.horizonUrl !== "string" ||
+      !isValidUrlString(config.horizonUrl)
+    ) {
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         `Invalid horizonUrl: ${String(config.horizonUrl)}`,
@@ -500,7 +543,10 @@ export function validateClientConfig(
     }
   }
 
-  if (config.errorCodeTransformer !== undefined && config.errorCodeTransformer !== null) {
+  if (
+    config.errorCodeTransformer !== undefined &&
+    config.errorCodeTransformer !== null
+  ) {
     if (typeof config.errorCodeTransformer !== "function") {
       return err(
         SorokitErrorCode.INVALID_CONFIG,
@@ -510,7 +556,11 @@ export function validateClientConfig(
   }
 
   if (config.maxTxPerSecond !== undefined) {
-    if (typeof config.maxTxPerSecond !== "number" || isNaN(config.maxTxPerSecond) || config.maxTxPerSecond <= 0) {
+    if (
+      typeof config.maxTxPerSecond !== "number" ||
+      isNaN(config.maxTxPerSecond) ||
+      config.maxTxPerSecond <= 0
+    ) {
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         "maxTxPerSecond must be a positive number",
@@ -543,7 +593,11 @@ export function validateClientConfig(
   }
 
   if (config.timeoutMs !== undefined && config.timeoutMs !== null) {
-    if (typeof config.timeoutMs !== "number" || isNaN(config.timeoutMs) || config.timeoutMs < 0) {
+    if (
+      typeof config.timeoutMs !== "number" ||
+      isNaN(config.timeoutMs) ||
+      config.timeoutMs < 0
+    ) {
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         "timeoutMs must be a non-negative number",
@@ -596,7 +650,6 @@ export function createSorokitClient(
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
-      prefix: config.logPrefix,
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
@@ -604,7 +657,6 @@ export function createSorokitClient(
   // Set up distributed tracing with correlation IDs (#212).
   const traceContext = createTraceContext(traceId);
   const tracedFetch = createTracedFetch(traceContext);
-  
 
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
@@ -656,15 +708,24 @@ export function createSorokitClient(
 
     healthCheck: async () => {
       const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);
-      const networkHealth = networkHealthResult.status === "ok"
-        ? networkHealthResult.data
-        : {
-            status: "down" as const,
-            horizon: { reachable: false, latencyMs: null, error: "Failed to check" },
-            rpc: { reachable: false, latencyMs: null, error: "Failed to check" },
-            issues: ["Health check failed"],
-            recommendations: ["Check network configuration"],
-          };
+      const networkHealth =
+        networkHealthResult.status === "ok"
+          ? networkHealthResult.data
+          : {
+              status: "down" as const,
+              horizon: {
+                reachable: false,
+                latencyMs: null,
+                error: "Failed to check",
+              },
+              rpc: {
+                reachable: false,
+                latencyMs: null,
+                error: "Failed to check",
+              },
+              issues: ["Health check failed"],
+              recommendations: ["Check network configuration"],
+            };
 
       const overallStatus = networkHealth.status;
 
@@ -695,45 +756,73 @@ export function createSorokitClient(
               }
             }
 
-            if (cached && cached.connected && cached.walletType === adapter.walletType) {
+            if (
+              cached &&
+              cached.connected &&
+              cached.walletType === adapter.walletType
+            ) {
               if (adapter.isAvailable()) {
-                logger.info("wallet.connect.recover", { walletType: adapter.walletType, status: "ok" });
+                logger.info("wallet.connect.recover", {
+                  walletType: adapter.walletType,
+                  status: "ok",
+                });
                 return Promise.resolve(applyTx(ok(cached)));
               } else {
-                logger.warn("wallet.connect.recover.validation_failed", { walletType: adapter.walletType });
+                logger.warn("wallet.connect.recover.validation_failed", {
+                  walletType: adapter.walletType,
+                });
                 cache.invalidate("wallet:state");
-                return Promise.resolve(applyTx(ok({
-                  connected: false,
-                  publicKey: null,
-                  walletType: null,
-                })));
+                return Promise.resolve(
+                  applyTx(
+                    ok({
+                      connected: false,
+                      publicKey: null,
+                      walletType: null,
+                    }),
+                  ),
+                );
               }
             }
           }
 
-          return withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
-            connectWallet(adapter, cache),
+          return withLogging(
+            logger,
+            "wallet.connect",
+            { walletType: adapter.walletType },
+            () => connectWallet(adapter, cache),
           );
         };
         return withErrorHandling(
           errorHandler,
-          { functionName: "wallet.connect", params: { walletType: adapter.walletType } },
-          action
+          {
+            functionName: "wallet.connect",
+            params: { walletType: adapter.walletType },
+          },
+          action,
         ).then(applyTx);
       },
       disconnect: (adapter, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "wallet.disconnect", params: { walletType: adapter.walletType } },
+          {
+            functionName: "wallet.disconnect",
+            params: { walletType: adapter.walletType },
+          },
           () =>
-            withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
-              disconnectWallet(adapter, cache),
+            withLogging(
+              logger,
+              "wallet.disconnect",
+              { walletType: adapter.walletType },
+              () => disconnectWallet(adapter, cache),
             ),
         ).then(applyTx),
       signTransaction: (adapter, input, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "wallet.signTransaction", params: { walletType: adapter.walletType } },
+          {
+            functionName: "wallet.signTransaction",
+            params: { walletType: adapter.walletType },
+          },
           () =>
             withLogging(
               logger,
@@ -744,7 +833,6 @@ export function createSorokitClient(
         ).then(applyTx),
       emptyState: () => emptyWalletState(),
     },
-
 
     account: {
       get: (publicKey, timeoutMs) =>
@@ -768,8 +856,11 @@ export function createSorokitClient(
           errorHandler,
           { functionName: "account.getAccountsBatch", params: { publicKeys } },
           () =>
-            withLogging(logger, "account.getAccountsBatch", { publicKeys }, () =>
-              getAccountsBatch(horizonUrl, publicKeys),
+            withLogging(
+              logger,
+              "account.getAccountsBatch",
+              { publicKeys },
+              () => getAccountsBatch(horizonUrl, publicKeys),
             ),
         ).then(applyTx),
       getBalances: (publicKey, timeoutMs) =>
@@ -777,49 +868,67 @@ export function createSorokitClient(
           errorHandler,
           { functionName: "account.getBalances", params: { publicKey } },
           () =>
-            withLogging(logger, "account.getBalances", { publicKey }, async () => {
-              const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
-              if (cache) {
-                const cachedVal = cache.get(cacheKey);
-                if (cachedVal) return ok(cachedVal as AssetBalance[]);
-              }
-              const res = await getBalances(horizonUrl, publicKey);
-              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-              return res;
-            }),
+            withLogging(
+              logger,
+              "account.getBalances",
+              { publicKey },
+              async () => {
+                const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
+                if (cache) {
+                  const cachedVal = cache.get(cacheKey);
+                  if (cachedVal) return ok(cachedVal as AssetBalance[]);
+                }
+                const res = await getBalances(horizonUrl, publicKey);
+                if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                return res;
+              },
+            ),
         ).then(applyTx),
       getAssetBalances: (publicKey, filter, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "account.getAssetBalances", params: { publicKey, filter } },
+          {
+            functionName: "account.getAssetBalances",
+            params: { publicKey, filter },
+          },
           () =>
-            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, async () => {
-              const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
-              if (cache) {
-                const cachedVal = cache.get(cacheKey);
-                if (cachedVal) return ok(cachedVal as AssetBalance[]);
-              }
-              const res = await getAssetBalances(horizonUrl, publicKey, filter);
-              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-              return res;
-            }),
+            withLogging(
+              logger,
+              "account.getAssetBalances",
+              { publicKey, filter },
+              async () => {
+                const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
+                if (cache) {
+                  const cachedVal = cache.get(cacheKey);
+                  if (cachedVal) return ok(cachedVal as AssetBalance[]);
+                }
+                const res = await getAssetBalances(
+                  horizonUrl,
+                  publicKey,
+                  filter,
+                );
+                if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                return res;
+              },
+            ),
         ).then(applyTx),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
       isValidPublicKey: (key) => isValidPublicKey(key),
       isValidContractId: (id) => isValidContractId(id),
-      setSponsor: (account, sponsor) =>
-        applyTx(setSponsor(account, sponsor)),
-      removeSponsor: (account) =>
-        applyTx(removeSponsor(account)),
+      setSponsor: (account, sponsor) => applyTx(setSponsor(account, sponsor)),
+      removeSponsor: (account) => applyTx(removeSponsor(account)),
     },
 
     transaction: {
       buildPayment: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.buildPayment", params: { sourcePublicKey, ...params } },
+          {
+            functionName: "transaction.buildPayment",
+            params: { sourcePublicKey, ...params },
+          },
           () => {
             logger.debug("transaction.buildPayment", { sourcePublicKey });
             return buildPaymentTransaction(
@@ -829,12 +938,15 @@ export function createSorokitClient(
               params,
               client.trustedIssuers,
             );
-          }
+          },
         ).then(applyTx),
       buildCreateAccount: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.buildCreateAccount", params: { sourcePublicKey, ...params } },
+          {
+            functionName: "transaction.buildCreateAccount",
+            params: { sourcePublicKey, ...params },
+          },
           () => {
             logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
             return buildCreateAccountTransaction(
@@ -843,12 +955,15 @@ export function createSorokitClient(
               sourcePublicKey,
               params,
             );
-          }
+          },
         ).then(applyTx),
       buildTrustline: (sourcePublicKey, params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.buildTrustline", params: { sourcePublicKey, ...params } },
+          {
+            functionName: "transaction.buildTrustline",
+            params: { sourcePublicKey, ...params },
+          },
           () => {
             logger.debug("transaction.buildTrustline", { sourcePublicKey });
             return buildTrustlineTransaction(
@@ -858,14 +973,25 @@ export function createSorokitClient(
               params,
               client.trustedIssuers,
             );
-          }
+          },
         ).then(applyTx),
-      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options, timeoutMs) =>
+      buildAccountMerge: (
+        sourcePublicKey,
+        destinationPublicKey,
+        options,
+        timeoutMs,
+      ) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.buildAccountMerge", params: { sourcePublicKey, destinationPublicKey, options } },
+          {
+            functionName: "transaction.buildAccountMerge",
+            params: { sourcePublicKey, destinationPublicKey, options },
+          },
           () => {
-            logger.debug("transaction.buildAccountMerge", { sourcePublicKey, destinationPublicKey });
+            logger.debug("transaction.buildAccountMerge", {
+              sourcePublicKey,
+              destinationPublicKey,
+            });
             return buildAccountMerge(
               horizonUrl,
               networkConfig,
@@ -873,7 +999,7 @@ export function createSorokitClient(
               destinationPublicKey,
               options,
             );
-          }
+          },
         ).then(applyTx),
       submit: async (signedXdr, timeoutMs) =>
         withErrorHandling(
@@ -882,8 +1008,13 @@ export function createSorokitClient(
           async () => {
             logger.debug("transaction.submit");
             if (rateLimiter) await rateLimiter.acquire();
-            return submitTransaction(horizonUrl, networkPassphrase, signedXdr, cache);
-          }
+            return submitTransaction(
+              horizonUrl,
+              networkPassphrase,
+              signedXdr,
+              cache,
+            );
+          },
         ).then(applyTx),
       getStatus: (hash, timeoutMs) =>
         withErrorHandling(
@@ -892,7 +1023,7 @@ export function createSorokitClient(
           () => {
             logger.debug("transaction.getStatus", { hash });
             return getTransactionStatus(horizonUrl, hash);
-          }
+          },
         ).then(applyTx),
       estimateFee: (input, timeoutMs) =>
         withErrorHandling(
@@ -909,7 +1040,7 @@ export function createSorokitClient(
               undefined,
               feeEstimateOptions,
             );
-          }
+          },
         ).then(applyTx),
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
@@ -918,7 +1049,10 @@ export function createSorokitClient(
       validateDestination: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.validateDestination", params: { publicKey, options } },
+          {
+            functionName: "transaction.validateDestination",
+            params: { publicKey, options },
+          },
           () => {
             logger.debug("transaction.validateDestination", { publicKey });
             return validateDestination(publicKey, {
@@ -930,7 +1064,10 @@ export function createSorokitClient(
       queryHistory: (publicKey, query, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.queryHistory", params: { publicKey, query } },
+          {
+            functionName: "transaction.queryHistory",
+            params: { publicKey, query },
+          },
           () => {
             logger.debug("transaction.queryHistory", { publicKey });
             return queryTransactionHistory(horizonUrl, publicKey, {
@@ -942,24 +1079,32 @@ export function createSorokitClient(
       exportHistory: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.exportHistory", params: { publicKey, options } },
+          {
+            functionName: "transaction.exportHistory",
+            params: { publicKey, options },
+          },
           () => {
             logger.debug("transaction.exportHistory", { publicKey });
             return exportTransactionHistory(horizonUrl, publicKey, {
               ...options,
-              networkPassphrase: options?.networkPassphrase ?? networkPassphrase,
+              networkPassphrase:
+                options?.networkPassphrase ?? networkPassphrase,
             });
           },
         ).then(applyTx),
       exportTransactionHistory: (publicKey, options, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.exportTransactionHistory", params: { publicKey, options } },
+          {
+            functionName: "transaction.exportTransactionHistory",
+            params: { publicKey, options },
+          },
           () => {
             logger.debug("transaction.exportTransactionHistory", { publicKey });
             return exportTransactionHistory(horizonUrl, publicKey, {
               ...options,
-              networkPassphrase: options?.networkPassphrase ?? networkPassphrase,
+              networkPassphrase:
+                options?.networkPassphrase ?? networkPassphrase,
             });
           },
         ).then(applyTx),
@@ -969,7 +1114,10 @@ export function createSorokitClient(
       getContractMethods: (contractId, ttlMs, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "soroban.getContractMethods", params: { contractId } },
+          {
+            functionName: "soroban.getContractMethods",
+            params: { contractId },
+          },
           () =>
             withLogging(
               logger,
@@ -994,13 +1142,17 @@ export function createSorokitClient(
       prepare: (params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } },
+          {
+            functionName: "soroban.prepare",
+            params: { contractId: params.contractId, method: params.method },
+          },
           () =>
             withLogging(
               logger,
               "soroban.prepare",
               { contractId: params.contractId, method: params.method },
-              () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
+              () =>
+                prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
             ),
         ).then(applyTx),
       execute: (signedXdr, pollConfig, timeoutMs) =>
@@ -1020,7 +1172,10 @@ export function createSorokitClient(
       invoke: (params, signFn, pollConfig, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } },
+          {
+            functionName: "soroban.invoke",
+            params: { contractId: params.contractId, method: params.method },
+          },
           () =>
             withLogging(
               logger,
@@ -1033,7 +1188,8 @@ export function createSorokitClient(
                   horizonUrl,
                   {
                     ...params,
-                    ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                    ...(params.stateTracker === undefined &&
+                    contractStateTracker !== undefined
                       ? { stateTracker: contractStateTracker }
                       : {}),
                   },
@@ -1046,7 +1202,10 @@ export function createSorokitClient(
       read: (params, timeoutMs) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } },
+          {
+            functionName: "soroban.read",
+            params: { contractId: params.contractId, method: params.method },
+          },
           () =>
             withLogging(
               logger,
@@ -1055,7 +1214,8 @@ export function createSorokitClient(
               () =>
                 readContract(rpcUrl, horizonUrl, networkConfig, {
                   ...params,
-                  ...(params.stateTracker === undefined && contractStateTracker !== undefined
+                  ...(params.stateTracker === undefined &&
+                  contractStateTracker !== undefined
                     ? { stateTracker: contractStateTracker }
                     : {}),
                 }),

@@ -28,8 +28,21 @@ export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export type { InvokeContractOptions } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
-export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
-export { getContractMethods } from "./contractMetadata";
+export {
+  subscribeContractEvents,
+  queryContractEvents,
+  streamContractEvents,
+} from "./subscribeContractEvents";
+export {
+  getContractMethods,
+  parseContractSchema,
+  validateContractArgs,
+} from "./contractMetadata";
+export type {
+  ContractSchema,
+  ContractMethodSchema,
+  ContractMethodParam,
+} from "./contractMetadata";
 export { ContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
   ContractInteractionBuilderConfig,
@@ -40,12 +53,12 @@ export type {
   BuilderStateListener,
   BuilderStateUnsubscribe,
 } from "./contractInteractionBuilder";
-export { subscribeContractEvents, queryContractEvents, streamContractEvents } from "./subscribeContractEvents";
-export { getContractMethods, parseContractSchema, validateContractArgs } from "./contractMetadata";
-export type { ContractSchema, ContractMethodSchema, ContractMethodParam } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
 export { SorobanSimulator } from "./simulator";
-export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
+export type {
+  SimulatedMethodResult,
+  SorobanSimulatorOptions,
+} from "./simulator";
 export { buildContractDeploy } from "./deployContract";
 export {
   validateDeployConfig,
@@ -166,7 +179,9 @@ export function validateContractData(
       });
     } else {
       resolvedType = normalizedType;
-      issues.push(...validateTypedContractValue(value, normalizedType, "value"));
+      issues.push(
+        ...validateTypedContractValue(value, normalizedType, "value"),
+      );
     }
   } else {
     const valueResult = validateUntypedContractValue(value, "value");
@@ -231,7 +246,12 @@ function validateTypedContractValue(
     case "address":
       return typeof value === "string" && isValidSorobanAddress(value)
         ? []
-        : [{ field, message: `${field} must be a valid Stellar account or contract address` }];
+        : [
+            {
+              field,
+              message: `${field} must be a valid Stellar account or contract address`,
+            },
+          ];
     case "bool":
       return typeof value === "boolean"
         ? []
@@ -239,7 +259,12 @@ function validateTypedContractValue(
     case "bytes":
       return isBytesLike(value)
         ? []
-        : [{ field, message: `${field} must be bytes as Uint8Array, Buffer, or base64 string` }];
+        : [
+            {
+              field,
+              message: `${field} must be bytes as Uint8Array, Buffer, or base64 string`,
+            },
+          ];
     case "i32":
       return isIntegerInRange(value, -2147483648n, 2147483647n)
         ? []
@@ -275,7 +300,12 @@ function validateTypedContractValue(
     case "symbol":
       return typeof value === "string" && value.length > 0 && value.length <= 32
         ? []
-        : [{ field, message: `${field} must be a non-empty Soroban symbol up to 32 characters` }];
+        : [
+            {
+              field,
+              message: `${field} must be a non-empty Soroban symbol up to 32 characters`,
+            },
+          ];
     case "vec":
       return Array.isArray(value)
         ? []
@@ -372,7 +402,8 @@ function isIntegerInRange(value: unknown, min: bigint, max: bigint): boolean {
 
 function parseInteger(value: unknown): bigint | undefined {
   if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isInteger(value)) return BigInt(value);
+  if (typeof value === "number" && Number.isInteger(value))
+    return BigInt(value);
   if (typeof value === "string" && /^-?\d+$/.test(value)) return BigInt(value);
   return undefined;
 }

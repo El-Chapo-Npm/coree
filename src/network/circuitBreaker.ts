@@ -99,15 +99,19 @@ export class CircuitBreaker {
 
   private readonly failureThreshold: number;
   private readonly recoveryWindowMs: number;
-  private readonly onStateChange?: (event: CircuitStateChangeEvent) => void;
+  private readonly onStateChange:
+    | ((event: CircuitStateChangeEvent) => void)
+    | undefined;
 
   constructor(
     readonly endpoint: string,
     config: CircuitBreakerConfig = {},
   ) {
-    this.failureThreshold = config.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
-    this.recoveryWindowMs = config.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
-    this.onStateChange = config.onStateChange;
+    this.failureThreshold =
+      config.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
+    this.recoveryWindowMs =
+      config.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
+    this.onStateChange = config.onStateChange ?? undefined;
   }
 
   // ─── State queries ──────────────────────────────────────────────────────────
