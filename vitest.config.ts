@@ -5,12 +5,13 @@ export default defineConfig({
     globals: true,
     environment: "node",
     threads: true,
-    maxWorkers: 4,
+    maxWorkers: 2,
     minWorkers: 1,
     isolate: true,
-    // Disable coverage to save memory
     coverage: {
       enabled: false,
     },
+    // Disable worker cleanup to avoid OOM during teardown
+    teardownTimeout: 10000,
   },
 });
