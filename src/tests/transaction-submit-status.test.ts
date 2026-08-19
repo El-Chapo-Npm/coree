@@ -67,8 +67,12 @@ function makeCache() {
   const store = new Map<string, unknown>();
   return {
     get: vi.fn((key: string) => store.get(key)),
-    set: vi.fn((key: string, value: unknown) => { store.set(key, value); }),
-    invalidate: vi.fn((key: string) => { store.delete(key); }),
+    set: vi.fn((key: string, value: unknown) => {
+      store.set(key, value);
+    }),
+    invalidate: vi.fn((key: string) => {
+      store.delete(key);
+    }),
     clear: vi.fn(() => store.clear()),
   };
 }
@@ -354,7 +358,9 @@ describe("getTransactionStatus", () => {
 
   describe("error paths", () => {
     it("returns TX_NOT_FOUND when Horizon responds with 404", async () => {
-      mockTransactionCall.mockRejectedValueOnce(makeHorizonError(404, "Resource Missing"));
+      mockTransactionCall.mockRejectedValueOnce(
+        makeHorizonError(404, "Resource Missing"),
+      );
 
       const result = await getTransactionStatus(
         "https://horizon-testnet.stellar.org",
@@ -368,7 +374,9 @@ describe("getTransactionStatus", () => {
     });
 
     it("returns TX_NOT_FOUND when error message contains 'not found'", async () => {
-      mockTransactionCall.mockRejectedValueOnce(new Error("Transaction not found"));
+      mockTransactionCall.mockRejectedValueOnce(
+        new Error("Transaction not found"),
+      );
 
       const result = await getTransactionStatus(
         "https://horizon-testnet.stellar.org",
@@ -382,7 +390,9 @@ describe("getTransactionStatus", () => {
     });
 
     it("returns TX_SUBMIT_FAILED for non-404 Horizon errors (e.g. 500)", async () => {
-      mockTransactionCall.mockRejectedValueOnce(makeHorizonError(500, "Internal Server Error"));
+      mockTransactionCall.mockRejectedValueOnce(
+        makeHorizonError(500, "Internal Server Error"),
+      );
 
       const result = await getTransactionStatus(
         "https://horizon-testnet.stellar.org",
@@ -391,7 +401,7 @@ describe("getTransactionStatus", () => {
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+        expect(result.error.code).toBe(SorokitErrorCode.TX_FETCH_FAILED);
       }
     });
 
@@ -405,7 +415,7 @@ describe("getTransactionStatus", () => {
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+        expect(result.error.code).toBe(SorokitErrorCode.TX_FETCH_FAILED);
       }
     });
   });

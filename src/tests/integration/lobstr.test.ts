@@ -2,7 +2,7 @@
  * Integration tests for Lobstr wallet adapter (#198).
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { LobstrAdapter } from "../../wallet/adapters/lobstr";
 import type { SWKInstance } from "../../wallet/types";
 
@@ -17,8 +17,15 @@ describe("Lobstr adapter integration tests", () => {
     } as unknown as SWKInstance;
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
   describe("connect", () => {
     it("should successfully connect to Lobstr wallet", async () => {
+      vi.stubGlobal("window", {});
+
       (mockKit.getAddress as any).mockResolvedValue({
         address: "GXYZ9876543210ABC...",
       });
@@ -41,11 +48,11 @@ describe("Lobstr adapter integration tests", () => {
 
       expect(result.status).toBe("error");
       expect(result.error?.code).toBe("WALLET_BROWSER_ONLY");
-
-      vi.unstubAllGlobals();
     });
 
     it("should handle connection errors gracefully", async () => {
+      vi.stubGlobal("window", {});
+
       (mockKit.getAddress as any).mockRejectedValue(new Error("User rejected"));
 
       const adapter = new LobstrAdapter(mockKit);
@@ -76,8 +83,10 @@ describe("Lobstr adapter integration tests", () => {
 
   describe("signTransaction", () => {
     it("should successfully sign a transaction", async () => {
+      vi.stubGlobal("window", {});
+
       (mockKit.signTransaction as any).mockResolvedValue({
-        signedXdr: "AAAC...", // Signed XDR
+        signedTxXdr: "AAAC...", // Signed XDR
       });
 
       const adapter = new LobstrAdapter(mockKit);
@@ -88,7 +97,7 @@ describe("Lobstr adapter integration tests", () => {
 
       expect(result.status).toBe("ok");
       if (result.status === "ok") {
-        expect(result.data).toContain("AAAC");
+        expect(result.data).toMatch(/AAAC/);
       }
     });
 
@@ -103,12 +112,15 @@ describe("Lobstr adapter integration tests", () => {
 
       expect(result.status).toBe("error");
       expect(result.error?.code).toBe("WALLET_BROWSER_ONLY");
-
-      vi.unstubAllGlobals();
     });
 
     it("should handle user rejection", async () => {
-      (mockKit.signTransaction as any).mockRejectedValue(new Error("User rejected"));
+      // Ensure window is available for this test
+      vi.stubGlobal("window", {});
+
+      (mockKit.signTransaction as any).mockRejectedValue(
+        new Error("User rejected"),
+      );
 
       const adapter = new LobstrAdapter(mockKit);
       const result = await adapter.signTransaction({
@@ -121,24 +133,33 @@ describe("Lobstr adapter integration tests", () => {
     });
 
     it("should handle timeout", async () => {
+      const timeout = new AbortController();
+      const abortTimer = setTimeout(() => timeout.abort(), 100);
+
       (mockKit.signTransaction as any).mockImplementation(
-        () => new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout")), 35000)
-        )
+        () =>
+          new Promise((_, reject) => {
+            timeout.signal.addEventListener("abort", () => {
+              clearTimeout(abortTimer);
+              reject(new Error("Timeout"));
+            });
+          }),
       );
 
       const adapter = new LobstrAdapter(mockKit);
-      
+
       const result = await adapter.signTransaction({
         transactionXdr: "AAAA...",
         networkPassphrase: "Test SDF Network ; September 2015",
       });
 
       expect(result.status).toBe("error");
-    }, 40000); // 40s timeout for this test
+    }, 1000);
 
     it("should handle network errors", async () => {
-      (mockKit.signTransaction as any).mockRejectedValue(new Error("Network error"));
+      (mockKit.signTransaction as any).mockRejectedValue(
+        new Error("Network error"),
+      );
 
       const adapter = new LobstrAdapter(mockKit);
       const result = await adapter.signTransaction({
@@ -154,22 +175,18 @@ describe("Lobstr adapter integration tests", () => {
   describe("isAvailable", () => {
     it("should return true when in browser environment", () => {
       vi.stubGlobal("window", {});
-      
+
       const adapter = new LobstrAdapter(mockKit);
       const available = adapter.isAvailable();
       expect(available).toBe(true);
-
-      vi.unstubAllGlobals();
     });
 
     it("should return false when not in browser environment", () => {
       vi.stubGlobal("window", undefined);
-      
+
       const adapter = new LobstrAdapter(mockKit);
       const available = adapter.isAvailable();
       expect(available).toBe(false);
-
-      vi.unstubAllGlobals();
     });
   });
 
@@ -182,7 +199,9 @@ describe("Lobstr adapter integration tests", () => {
 
   describe("error scenarios", () => {
     it("should handle invalid XDR format", async () => {
-      (mockKit.signTransaction as any).mockRejectedValue(new Error("Invalid XDR"));
+      (mockKit.signTransaction as any).mockRejectedValue(
+        new Error("Invalid XDR"),
+      );
 
       const adapter = new LobstrAdapter(mockKit);
       const result = await adapter.signTransaction({
@@ -194,7 +213,9 @@ describe("Lobstr adapter integration tests", () => {
     });
 
     it("should handle empty XDR", async () => {
-      (mockKit.signTransaction as any).mockRejectedValue(new Error("Empty XDR"));
+      (mockKit.signTransaction as any).mockRejectedValue(
+        new Error("Empty XDR"),
+      );
 
       const adapter = new LobstrAdapter(mockKit);
       const result = await adapter.signTransaction({
