@@ -21,6 +21,8 @@ describe("webhooks", () => {
 
   afterEach(() => {
     clearWebhooks();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   describe("registerWebhook", () => {
@@ -86,13 +88,19 @@ describe("webhooks", () => {
         "secure-random-secret-key-32-chars-min",
       );
       expect(registerResult.status).toBe("ok");
-      
-      const result = unregisterWebhook("confirmed", "https://example.com/webhook");
+
+      const result = unregisterWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+      );
       expect(result.status).toBe("ok");
     });
 
     it("should fail to unregister non-existent webhook", () => {
-      const result = unregisterWebhook("confirmed", "https://example.com/webhook");
+      const result = unregisterWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+      );
       expect(result.status).toBe("error");
       expect(result.error?.code).toBe("INVALID_CONFIG");
     });
@@ -105,10 +113,22 @@ describe("webhooks", () => {
     });
 
     it("should return webhooks for specific event type", () => {
-      const result1 = registerWebhook("confirmed", "https://example.com/1", "secure-random-secret-key-32-chars-min-1");
-      const result2 = registerWebhook("failed", "https://example.com/2", "secure-random-secret-key-32-chars-min-2");
-      const result3 = registerWebhook("confirmed", "https://example.com/3", "secure-random-secret-key-32-chars-min-3");
-      
+      const result1 = registerWebhook(
+        "confirmed",
+        "https://example.com/1",
+        "secure-random-secret-key-32-chars-min-1",
+      );
+      const result2 = registerWebhook(
+        "failed",
+        "https://example.com/2",
+        "secure-random-secret-key-32-chars-min-2",
+      );
+      const result3 = registerWebhook(
+        "confirmed",
+        "https://example.com/3",
+        "secure-random-secret-key-32-chars-min-3",
+      );
+
       expect(result1.status).toBe("ok");
       expect(result2.status).toBe("ok");
       expect(result3.status).toBe("ok");
@@ -137,7 +157,7 @@ describe("webhooks", () => {
     it("should verify valid signature", async () => {
       const payload = JSON.stringify({ test: "data" });
       const secret = "secure-random-secret-key-32-chars-min";
-      
+
       const result = await verifySignature(payload, payload, secret);
       // This will fail because the signature is not actually generated
       // In a real test, we'd generate a proper signature first
@@ -148,7 +168,7 @@ describe("webhooks", () => {
       const payload = JSON.stringify({ test: "data" });
       const secret = "secure-random-secret-key-32-chars-min";
       const invalidSignature = "invalid-signature";
-      
+
       const result = await verifySignature(payload, invalidSignature, secret);
       expect(result).toBe(false);
     });
@@ -161,7 +181,7 @@ describe("webhooks", () => {
         status: "success",
         ledger: 123,
       };
-      
+
       const results = await triggerWebhooks("confirmed", transaction);
       expect(results).toEqual([]);
     });
@@ -172,35 +192,41 @@ describe("webhooks", () => {
         Promise.resolve({
           ok: true,
           status: 200,
-        } as Response)
+        } as Response),
       );
 
-      const registerResult = registerWebhook("confirmed", "https://example.com/webhook", "secure-random-secret-key-32-chars-min");
+      const registerResult = registerWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+        "secure-random-secret-key-32-chars-min",
+      );
       expect(registerResult.status).toBe("ok");
-      
+
       const transaction: TransactionResult = {
         hash: "test-hash",
         status: "success",
         ledger: 123,
       };
-      
+
       const results = await triggerWebhooks("confirmed", transaction);
       expect(results).toHaveLength(1);
       expect(results[0].status).toBe("ok");
-
-      vi.restoreAllMocks();
     });
 
     it("should not trigger webhooks for non-matching event type", async () => {
-      const registerResult = registerWebhook("confirmed", "https://example.com/webhook", "secure-random-secret-key-32-chars-min");
+      const registerResult = registerWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+        "secure-random-secret-key-32-chars-min",
+      );
       expect(registerResult.status).toBe("ok");
-      
+
       const transaction: TransactionResult = {
         hash: "test-hash",
         status: "success",
         ledger: 123,
       };
-      
+
       const results = await triggerWebhooks("failed", transaction);
       expect(results).toEqual([]);
     });
@@ -218,43 +244,45 @@ describe("webhooks", () => {
         } as Response);
       });
 
-      const registerResult = registerWebhook("confirmed", "https://example.com/webhook", "secure-random-secret-key-32-chars-min");
+      const registerResult = registerWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+        "secure-random-secret-key-32-chars-min",
+      );
       expect(registerResult.status).toBe("ok");
-      
+
       const transaction: TransactionResult = {
         hash: "test-hash",
         status: "success",
         ledger: 123,
       };
-      
+
       const results = await triggerWebhooks("confirmed", transaction);
       expect(results).toHaveLength(1);
       expect(results[0].status).toBe("ok");
       expect(attemptCount).toBe(3); // Failed twice, succeeded on third
-
-      vi.restoreAllMocks();
     });
 
     it("should fail after max retries", async () => {
-      global.fetch = vi.fn(() =>
-        Promise.reject(new Error("Network error"))
-      );
+      global.fetch = vi.fn(() => Promise.reject(new Error("Network error")));
 
-      const registerResult = registerWebhook("confirmed", "https://example.com/webhook", "secure-random-secret-key-32-chars-min");
+      const registerResult = registerWebhook(
+        "confirmed",
+        "https://example.com/webhook",
+        "secure-random-secret-key-32-chars-min",
+      );
       expect(registerResult.status).toBe("ok");
-      
+
       const transaction: TransactionResult = {
         hash: "test-hash",
         status: "success",
         ledger: 123,
       };
-      
+
       const results = await triggerWebhooks("confirmed", transaction);
       expect(results).toHaveLength(1);
       expect(results[0].status).toBe("error");
       expect(results[0].error?.code).toBe("NETWORK_ERROR");
-
-      vi.restoreAllMocks();
     }, 15000); // 15s timeout for retry test
   });
 });
