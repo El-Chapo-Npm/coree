@@ -249,7 +249,7 @@ export {
   resetPairRegistry,
 } from "./transaction/assetPairs";
 export type { AssetPair, PairPrice } from "./transaction/assetPairs";
-export { validateTransaction } from "./transaction/validateTransaction";
+export { validateTransaction, validateTransactionBatch } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
   TransactionValidationContext,
