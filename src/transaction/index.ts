@@ -82,6 +82,7 @@ export {
   checkTrustlines,
   buildBulkTrustlines,
   clearSequenceCache,
+  validateMemoPolicy,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
@@ -93,7 +94,7 @@ export {
   formatTransactionsToCsv,
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
-export { validateTransaction } from "./validateTransaction";
+export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
 export { validateTransactionOffline } from "./validateTransactionOffline";
 export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
@@ -114,6 +115,10 @@ export type {
 export type {
   TransactionResult,
   TransactionStatus,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
@@ -131,7 +136,17 @@ export type {
   FeeTiers,
   CongestionFeeEstimate,
 } from "./estimateFee";
-export { fetchCongestionFeeEstimate } from "./estimateFee";
+export {
+  fetchCongestionFeeEstimate,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
+} from "./estimateFee";
 export {
   findSwapPath,
   buildPathPaymentTransaction,

@@ -15,6 +15,14 @@ import {
   calculateFeeTiers,
   fetchFeeTiers,
   FEE_TIERS_CACHE_KEY,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
 } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
@@ -28,6 +36,7 @@ import {
   clearSequenceCache,
   checkTrustlines,
   buildBulkTrustlines,
+  validateMemoPolicy,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -835,6 +844,7 @@ describe("estimateFee — caching", () => {
     mockAddOperation.mockReset();
     mockAddMemo.mockReset();
     mockSetTimeout.mockReset();
+    clearFeeHistory();
     vi.clearAllMocks();
 
     // Default: simulation returns a success result
@@ -989,6 +999,122 @@ describe("estimateFee — caching", () => {
       );
 
       expect(cache.setCalls[0]?.ttl).toBe(customTtl);
+    });
+  });
+
+  describe("adaptive fee cache TTL based on network congestion trends (#386)", () => {
+    it("safely falls back to default 5-minute TTL when history is empty or invalid", () => {
+      expect(calculateAdaptiveFeeTtl(100, [])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(100, undefined)).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(100, [0, -50, NaN])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(0, [100])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(-10, [100])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+    });
+
+    it("applies up to 10-minute TTL when fee change is stable (<5%)", () => {
+      // 2% increase: 1000 -> 1020
+      expect(calculateAdaptiveFeeTtl(1020, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+      // 4% decrease: 1000 -> 960
+      expect(calculateAdaptiveFeeTtl(960, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+      // 0% change: exactly same fee
+      expect(calculateAdaptiveFeeTtl(1000, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+    });
+
+    it("applies intermediate 5-minute TTL when fee change is moderate (5% to 10%)", () => {
+      // Exactly 5% increase: 1000 -> 1050
+      expect(calculateAdaptiveFeeTtl(1050, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // 7.5% increase: 1000 -> 1075
+      expect(calculateAdaptiveFeeTtl(1075, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // Exactly 10% increase: 1000 -> 1100
+      expect(calculateAdaptiveFeeTtl(1100, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // 8% decrease: 1000 -> 920
+      expect(calculateAdaptiveFeeTtl(920, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+    });
+
+    it("applies ~2-minute TTL when fee change is volatile (>10%)", () => {
+      // 15% increase: 1000 -> 1150
+      expect(calculateAdaptiveFeeTtl(1150, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+      // 50% surge: 1000 -> 1500
+      expect(calculateAdaptiveFeeTtl(1500, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+      // 20% drop: 1000 -> 800
+      expect(calculateAdaptiveFeeTtl(800, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+    });
+
+    it("bounds the stored fee history to FEE_HISTORY_MAX_ENTRIES", () => {
+      clearFeeHistory();
+      for (let i = 1; i <= FEE_HISTORY_MAX_ENTRIES + 10; i++) {
+        recordFeeEstimate(i * 100, "test-network");
+      }
+      const history = getFeeHistory("test-network");
+      expect(history.length).toBe(FEE_HISTORY_MAX_ENTRIES);
+      expect(history[0]).toBe(1100);
+      expect(history[history.length - 1]).toBe(3000);
+    });
+
+    it("isolates fee history across different network passphrases", () => {
+      clearFeeHistory();
+      recordFeeEstimate(100, "net-a");
+      recordFeeEstimate(500, "net-b");
+
+      expect(getFeeHistory("net-a")).toEqual([100]);
+      expect(getFeeHistory("net-b")).toEqual([500]);
+    });
+
+    it("integrates adaptive TTL into estimateFee during stable conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1020" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 2% change -> 10 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+    });
+
+    it("integrates adaptive TTL into estimateFee during volatile conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1500" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 50% change -> 2 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+    });
+
+    it("integrates adaptive TTL into estimateFee during intermediate conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1070" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 7% change -> 5 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
     });
   });
 
@@ -2685,6 +2811,299 @@ describe("custom memoValidator callback (#91)", () => {
   });
 });
 
+describe("memo type enforcement and validation for transaction builders (#389)", () => {
+  const sourcePublicKey =
+    "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination =
+    "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+  const issuerPublicKey =
+    "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue({
+      accountId: () => sourcePublicKey,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+      subentry_count: 0,
+      balances: [],
+    });
+    transactionBuilderInstances.length = 0;
+  });
+
+  describe("validateMemoPolicy unit tests", () => {
+    it("preserves backward compatibility when memoValidation is omitted", () => {
+      expect(validateMemoPolicy({ memo: "test" }).status).toBe("ok");
+      expect(validateMemoPolicy({}).status).toBe("ok");
+      expect(validateMemoPolicy({ requireMemo: true, memo: "test" }).status).toBe("ok");
+      expect(validateMemoPolicy({ requireMemo: true }).status).toBe("error");
+    });
+
+    describe("rule: required", () => {
+      it("accepts valid non-empty memo", () => {
+        const result = validateMemoPolicy({ memoValidation: "required", memo: "order-123" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("accepts object config with rule: required", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "required" },
+          memo: "order-123",
+        });
+        expect(result.status).toBe("ok");
+      });
+
+      it("rejects missing memo (undefined)", () => {
+        const result = validateMemoPolicy({ memoValidation: "required" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+          expect(result.error.message).toBe("Memo is required for this transaction");
+        }
+      });
+
+      it("rejects empty string memo", () => {
+        const result = validateMemoPolicy({ memoValidation: "required", memo: "" });
+        expect(result.status).toBe("error");
+      });
+
+      it("uses custom errorMessage when provided", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "required", errorMessage: "Deposit memo is mandatory" },
+        });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("Deposit memo is mandatory");
+        }
+      });
+    });
+
+    describe("rule: prohibit", () => {
+      it("accepts when memo is omitted (undefined)", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("accepts when memo is empty string", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit", memo: "" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("rejects when memo is provided", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit", memo: "unwanted-memo" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+          expect(result.error.message).toBe("Memo is prohibited for this transaction");
+        }
+      });
+
+      it("uses custom errorMessage when provided", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "prohibit", errorMessage: "No memo allowed for security reasons" },
+          memo: "hello",
+        });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("No memo allowed for security reasons");
+        }
+      });
+    });
+
+    describe("rule: require_format", () => {
+      it("validates against a RegExp pattern", () => {
+        const config = { rule: "require_format" as const, format: /^INV-\d{4}$/ };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "INV-2024" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "INV-ABC" });
+        expect(badResult.status).toBe("error");
+        if (badResult.status === "error") {
+          expect(badResult.error.message).toContain("does not match required format");
+        }
+      });
+
+      it("validates against a string regex pattern", () => {
+        const config = { rule: "require_format" as const, format: "^[A-Z0-9]{8}$" };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "ABCD1234" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "abcd1234" });
+        expect(badResult.status).toBe("error");
+      });
+
+      it("validates against a custom predicate function", () => {
+        const config = {
+          rule: "require_format" as const,
+          format: (memo: string) => memo.startsWith("TX_") && memo.length === 10,
+        };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "TX_1234567" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "RX_1234567" });
+        expect(badResult.status).toBe("error");
+      });
+
+      it("rejects when memo is missing under require_format", () => {
+        const config = { rule: "require_format" as const, format: /^INV-\d+$/ };
+        const result = validateMemoPolicy({ memoValidation: config });
+        expect(result.status).toBe("error");
+      });
+
+      it("rejects when format is missing under require_format", () => {
+        const config = { rule: "require_format" as const };
+        const result = validateMemoPolicy({ memoValidation: config, memo: "INV-1" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toContain("Format pattern is required");
+        }
+      });
+
+      it("uses custom errorMessage when format validation fails", () => {
+        const config = {
+          rule: "require_format" as const,
+          format: /^\d+$/,
+          errorMessage: "Memo must be purely numeric",
+        };
+        const result = validateMemoPolicy({ memoValidation: config, memo: "123a" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("Memo must be purely numeric");
+        }
+      });
+    });
+  });
+
+  describe("transaction builder integration with memoValidation", () => {
+    it("buildPaymentTransaction enforces required memo", async () => {
+      const errResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memoValidation: "required",
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Memo is required for this transaction");
+      }
+
+      const okResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "valid-memo",
+          memoValidation: "required",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildPaymentTransaction enforces prohibited memo", async () => {
+      const errResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "prohibited",
+          memoValidation: "prohibit",
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Memo is prohibited for this transaction");
+      }
+
+      const okResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memoValidation: "prohibit",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildCreateAccountTransaction enforces require_format", async () => {
+      const formatConfig = {
+        rule: "require_format" as const,
+        format: /^ACCT-\d{3}$/,
+        errorMessage: "Must be ACCT- followed by 3 digits",
+      };
+
+      const errResult = await buildCreateAccountTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          startingBalance: "10",
+          memo: "ACCT-99",
+          memoValidation: formatConfig,
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Must be ACCT- followed by 3 digits");
+      }
+
+      const okResult = await buildCreateAccountTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          startingBalance: "10",
+          memo: "ACCT-123",
+          memoValidation: formatConfig,
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildTrustlineTransaction enforces memo policy", async () => {
+      const errResult = await buildTrustlineTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetCode: "USD",
+          assetIssuer: issuerPublicKey,
+          memoValidation: "required",
+        },
+      );
+      expect(errResult.status).toBe("error");
+
+      const okResult = await buildTrustlineTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetCode: "USD",
+          assetIssuer: issuerPublicKey,
+          memo: "TRUST-OK",
+          memoValidation: "required",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+  });
+});
+
 describe("calculateFeeTiers — tier calculation", () => {
   it("returns BASE_FEE for all tiers when the fee array is empty", () => {
     const tiers = calculateFeeTiers([]);
@@ -3448,6 +3867,81 @@ describe.skip("validateTransactionXdr (#99)", () => {
     });
     if (result.status !== "ok") throw new Error("expected ok");
     expect(result.data.errors.some((e) => e.code === "CUSTOM_FAIL")).toBe(true);
+  });
+});
+
+describe("validateTransactionBatch (#385)", () => {
+  const TEST_VALID_KEY =
+    "GAD3STKT2W2646HZ3BOCXE7JDEDKV7VARRHACNKLN5GNPUF3KW4ICE27";
+
+  function createMockTx(fee = 100) {
+    return {
+      fee,
+      networkPassphrase: "Test SDF Network ; September 2015",
+      operations: [
+        {
+          type: "payment",
+          destination: TEST_VALID_KEY,
+          amount: "10",
+        },
+      ],
+    };
+  }
+
+  it("handles empty and malformed inputs safely", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    expect(await validateTransactionBatch([])).toEqual([]);
+    expect(await validateTransactionBatch(null as unknown as string[])).toEqual([]);
+  });
+
+  it("validates multiple transactions concurrently and preserves ordering", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    mocks.fromXDR.mockImplementation((xdr: string) => {
+      if (xdr === "xdr-1") return createMockTx(100);
+      if (xdr === "xdr-2") return createMockTx(200);
+      return createMockTx(300);
+    });
+
+    const results = await validateTransactionBatch(["xdr-1", "xdr-2", "xdr-3"]);
+    if (results[0]?.status === "ok" && results[1]?.status === "ok" && results[2]?.status === "ok") {
+      expect(results[0].data.issues).toEqual([]);
+      expect(results[0].data.valid).toBe(true);
+      expect(results[0].data.fee).toBe("100");
+      expect(results[1].data.valid).toBe(true);
+      expect(results[1].data.fee).toBe("200");
+      expect(results[2].data.valid).toBe(true);
+      expect(results[2].data.fee).toBe("300");
+    }
+  });
+
+  it("isolates failures and reuses shared validation rules across batch", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    mocks.fromXDR.mockImplementation((xdr: string) => {
+      if (xdr === "valid-xdr") return createMockTx(250);
+      if (xdr === "invalid-xdr") throw new Error("Invalid XDR decode buffer");
+      if (xdr === "low-fee-xdr") return createMockTx(100);
+      return createMockTx(100);
+    });
+
+    const results = await validateTransactionBatch(["valid-xdr", "invalid-xdr", "low-fee-xdr"], {
+      minFee: 200,
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.status).toBe("ok");
+    expect(results[1]?.status).toBe("error");
+    expect(results[2]?.status).toBe("ok");
+
+    if (results[0]?.status === "ok") {
+      expect(results[0].data.valid).toBe(true);
+    }
+    if (results[1]?.status === "error") {
+      expect(results[1].error.code).toBe("TX_BUILD_FAILED");
+    }
+    if (results[2]?.status === "ok") {
+      expect(results[2].data.valid).toBe(false);
+      expect(results[2].data.issues.some((i) => i.message.includes("below the minimum of 200"))).toBe(true);
+    }
   });
 });
 

@@ -24,6 +24,100 @@ import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
+/** Minimum adaptive cache TTL: 2 minutes (used during high fee volatility >10% change). */
+export const ADAPTIVE_FEE_TTL_MIN_MS = 2 * 60 * 1000;
+
+/** Intermediate adaptive cache TTL: 5 minutes (used when fee volatility is between 5% and 10%). */
+export const ADAPTIVE_FEE_TTL_INTERMEDIATE_MS = 5 * 60 * 1000;
+
+/** Maximum adaptive cache TTL: 10 minutes (used during low fee volatility <5% change). */
+export const ADAPTIVE_FEE_TTL_MAX_MS = 10 * 60 * 1000;
+
+/** Maximum number of recent fee estimates retained per network for volatility tracking. */
+export const FEE_HISTORY_MAX_ENTRIES = 20;
+
+/** In-memory store of recent fee estimates keyed by network passphrase. */
+const feeHistoryByNetwork = new Map<string, number[]>();
+
+/**
+ * Record a fee estimate into the bounded history for the given network.
+ */
+export function recordFeeEstimate(
+  feeStroops: number,
+  networkPassphrase = "default",
+): void {
+  if (!Number.isFinite(feeStroops) || feeStroops <= 0) return;
+  const history = feeHistoryByNetwork.get(networkPassphrase) ?? [];
+  history.push(feeStroops);
+  if (history.length > FEE_HISTORY_MAX_ENTRIES) {
+    history.shift();
+  }
+  feeHistoryByNetwork.set(networkPassphrase, history);
+}
+
+/**
+ * Get a copy of the current bounded fee history for a network.
+ */
+export function getFeeHistory(networkPassphrase = "default"): number[] {
+  return [...(feeHistoryByNetwork.get(networkPassphrase) ?? [])];
+}
+
+/**
+ * Clear the fee history for a given network or all networks.
+ */
+export function clearFeeHistory(networkPassphrase?: string): void {
+  if (networkPassphrase) {
+    feeHistoryByNetwork.delete(networkPassphrase);
+  } else {
+    feeHistoryByNetwork.clear();
+  }
+}
+
+/**
+ * Calculate the adaptive cache TTL based on relative change from recent fee history.
+ *
+ * Volatility thresholds:
+ * - >10% change (>0.10)  -> 2-minute TTL (120,000 ms)
+ * - <5% change (<0.05)   -> up to 10-minute TTL (600,000 ms)
+ * - 5%–10% change        -> intermediate 5-minute TTL (300,000 ms)
+ *
+ * When insufficient history is available (<1 previous estimate) or inputs are invalid,
+ * safely falls back to the default 5-minute TTL.
+ */
+export function calculateAdaptiveFeeTtl(
+  currentFeeStroops: number,
+  history?: number[],
+): number {
+  if (!Number.isFinite(currentFeeStroops) || currentFeeStroops <= 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  if (!history || history.length === 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  const validEntries = history.filter((f) => Number.isFinite(f) && f > 0);
+  if (validEntries.length === 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  // Compare against the most recent recorded fee estimate
+  const previousFee = validEntries[validEntries.length - 1];
+  if (!previousFee || previousFee <= 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  const relativeChange = Math.abs(currentFeeStroops - previousFee) / previousFee;
+
+  if (relativeChange > 0.10) {
+    return ADAPTIVE_FEE_TTL_MIN_MS;
+  }
+  if (relativeChange < 0.05) {
+    return ADAPTIVE_FEE_TTL_MAX_MS;
+  }
+  return ADAPTIVE_FEE_TTL_INTERMEDIATE_MS;
+}
+
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
  * network transaction fees. All values are in stroops (as strings).
@@ -329,7 +423,6 @@ export async function estimateFee(
   options?: FeeEstimateOptions,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
-    const ttl = cacheTtlMs ?? DEFAULT_FEE_CACHE_TTL_MS;
     let xdr: string;
 
     if (input.kind === "xdr") {
@@ -437,6 +530,13 @@ export async function estimateFee(
         options.onFeeSurge(feeEstimate);
       }
     }
+
+    const networkPassphrase = networkConfig.networkPassphrase || "default";
+    const history = getFeeHistory(networkPassphrase);
+    const ttl = cacheTtlMs ?? calculateAdaptiveFeeTtl(feeStroops, history);
+
+    // Record fee into bounded history
+    recordFeeEstimate(feeStroops, networkPassphrase);
 
     // Store in cache so subsequent calls with the same XDR are free
     if (cache) {

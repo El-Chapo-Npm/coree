@@ -178,6 +178,14 @@ export type {
 export {
   calculateFeeTiers,
   fetchCongestionFeeEstimate,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
 } from "./transaction/estimateFee";
 export {
   findSwapPath,
@@ -210,7 +218,7 @@ export type {
   TransactionBuilderContext,
   SequenceValidationResult,
 } from "./transaction/transactionContext";
-export { buildAccountMerge } from "./transaction";
+export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
 export {
   exportTransactionHistory,
@@ -232,6 +240,10 @@ export type {
 export type {
   AccountCreateParams,
   AtomicSwapParams,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PathPaymentMode,
   PathPaymentParams,
   PaymentParams,
@@ -252,7 +264,7 @@ export {
   resetPairRegistry,
 } from "./transaction/assetPairs";
 export type { AssetPair, PairPrice } from "./transaction/assetPairs";
-export { validateTransaction } from "./transaction/validateTransaction";
+export { validateTransaction, validateTransactionBatch } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
   TransactionValidationContext,
