@@ -24,6 +24,20 @@ export interface TransactionResult {
 
 export type MemoType = "text" | "id" | "hash" | "return";
 
+export type MemoValidationRule = "required" | "prohibit" | "require_format";
+
+export interface MemoValidationConfig {
+  /** The memo enforcement policy rule: "required", "prohibit", or "require_format". */
+  rule: MemoValidationRule;
+  /**
+   * Expected format pattern when rule is "require_format".
+   * Can be a RegExp pattern, a regex string, or a custom predicate function `(memo: string) => boolean`.
+   */
+  format?: RegExp | string | ((memo: string) => boolean);
+  /** Optional custom error message to return on validation failure */
+  errorMessage?: string;
+}
+
 export interface MemoParams {
   /** Optional memo value. If omitted, no memo is attached. */
   memo?: string;
@@ -37,6 +51,11 @@ export interface MemoParams {
    * A returned error result surfaces as TX_BUILD_FAILED and aborts the build.
    */
   memoValidator?: (memo: string) => import("../shared/response").SorokitResult<void>;
+  /**
+   * Optional memo enforcement policy configuration.
+   * Supports "required", "prohibit", and "require_format" with custom format patterns.
+   */
+  memoValidation?: MemoValidationConfig | MemoValidationRule;
 }
 
 export interface PaymentParams extends MemoParams {

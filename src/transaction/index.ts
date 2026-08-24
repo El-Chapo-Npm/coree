@@ -82,6 +82,7 @@ export {
   checkTrustlines,
   buildBulkTrustlines,
   clearSequenceCache,
+  validateMemoPolicy,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
@@ -111,6 +112,10 @@ export type {
 export type {
   TransactionResult,
   TransactionStatus,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,

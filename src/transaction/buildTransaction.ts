@@ -136,10 +136,13 @@ function describeTransactionBuildFailure(
   return `Failed to build ${action} transaction: ${toMessage(cause)}`;
 }
 
-/**
- * Resolve an asset from code + optional issuer.
- * Returns SorokitResult<Asset> — never throws.
- */
+function isOfflineMode(params: { sequenceNumber?: string }): boolean {
+  return (
+    typeof params.sequenceNumber === "string" &&
+    params.sequenceNumber.trim().length > 0
+  );
+}
+
 function resolveAsset(
   assetCode?: string,
   assetIssuer?: string,
@@ -156,21 +159,104 @@ function resolveAsset(
   return ok(new Asset(assetCode, assetIssuer));
 }
 
-function validateMemoParams(
-  params: MemoParams,
-): SorokitResult<Memo | undefined> {
-  if (!params.memo) {
-    if (params.requireMemo) {
-      return err(
-        SorokitErrorCode.TX_BUILD_FAILED,
-        "Memo is required for this transaction",
-      );
-    }
-    return ok(undefined);
+/**
+ * Validate memo enforcement policy on transaction builder parameters.
+ *
+ * Checks `requireMemo`, `memoValidation` rules ("required", "prohibit", "require_format"),
+ * and custom `memoValidator` callbacks before serialization.
+ * Keeps policy validation separate from memo serialization.
+ */
+export function validateMemoPolicy(params: MemoParams): SorokitResult<void> {
+  const hasMemo = typeof params.memo === "string" && params.memo.length > 0;
+
+  // 1. Backward-compatible requireMemo flag
+  if (params.requireMemo && !hasMemo) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Memo is required for this transaction",
+    );
   }
 
-  if (params.memoValidator) {
-    const validationResult = params.memoValidator(params.memo);
+  // 2. Structured memoValidation policy
+  if (params.memoValidation) {
+    const config: MemoValidationConfig =
+      typeof params.memoValidation === "string"
+        ? { rule: params.memoValidation }
+        : params.memoValidation;
+
+    switch (config.rule) {
+      case "required":
+        if (!hasMemo) {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            config.errorMessage || "Memo is required for this transaction",
+          );
+        }
+        break;
+
+      case "prohibit":
+        if (params.memo !== undefined && params.memo !== "") {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            config.errorMessage || "Memo is prohibited for this transaction",
+          );
+        }
+        break;
+
+      case "require_format": {
+        if (!hasMemo) {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            config.errorMessage || "Memo is required to match specified format",
+          );
+        }
+
+        if (!config.format) {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            "Format pattern is required when memo validation rule is require_format",
+          );
+        }
+
+        let isMatch = false;
+        if (config.format instanceof RegExp) {
+          isMatch = config.format.test(params.memo as string);
+        } else if (typeof config.format === "string") {
+          try {
+            const regex = new RegExp(config.format);
+            isMatch = regex.test(params.memo as string);
+          } catch (cause) {
+            return err(
+              SorokitErrorCode.TX_BUILD_FAILED,
+              `Invalid regex format pattern "${config.format}": ${toMessage(cause)}`,
+              cause,
+            );
+          }
+        } else if (typeof config.format === "function") {
+          isMatch = config.format(params.memo as string);
+        }
+
+        if (!isMatch) {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            config.errorMessage ||
+              `Memo "${params.memo}" does not match required format`,
+          );
+        }
+        break;
+      }
+
+      default:
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          `Unsupported memo validation rule: ${(config as any).rule}`,
+        );
+    }
+  }
+
+  // 3. Custom memoValidator callback
+  if (hasMemo && params.memoValidator) {
+    const validationResult = params.memoValidator(params.memo as string);
     if (validationResult.status === "error") {
       return err(
         SorokitErrorCode.TX_BUILD_FAILED,
@@ -178,6 +264,21 @@ function validateMemoParams(
         validationResult.error.cause,
       );
     }
+  }
+
+  return ok(undefined);
+}
+
+function validateMemoParams(
+  params: MemoParams,
+): SorokitResult<Memo | undefined> {
+  const policyResult = validateMemoPolicy(params);
+  if (policyResult.status === "error") {
+    return policyResult;
+  }
+
+  if (!params.memo) {
+    return ok(undefined);
   }
 
   const memoType = params.memoType ?? "text";
@@ -483,6 +584,9 @@ export async function buildPaymentWithTrustline(
   sourcePublicKey: string,
   params: PaymentWithTrustlineParams,
 ): Promise<SorokitResult<string>> {
+  const memoResult = validateMemoParams(params.payment);
+  if (memoResult.status === "error") return memoResult;
+
   // Resolve source account (offline if sequenceNumber is provided on trustline or payment)
   const sequenceNumber = params.trustline.sequenceNumber ?? params.payment.sequenceNumber;
   const estimatedFee = params.trustline.estimatedFee ?? params.payment.estimatedFee;
@@ -530,8 +634,8 @@ export async function buildPaymentWithTrustline(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    if (params.payment.memo) {
-      builder.addMemo(Memo.text(params.payment.memo));
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
     }
 
     return ok(builder.build().toXDR());
@@ -554,6 +658,9 @@ export async function buildSwapTransaction(
   sourcePublicKey: string,
   params: SwapTransactionParams,
 ): Promise<SorokitResult<string>> {
+  const memoResult = validateMemoParams(params.paymentA);
+  if (memoResult.status === "error") return memoResult;
+
   const assetAResult = resolveAsset(
     params.paymentA.assetCode,
     params.paymentA.assetIssuer,
@@ -600,8 +707,8 @@ export async function buildSwapTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    if (params.paymentA.memo) {
-      builder.addMemo(Memo.text(params.paymentA.memo));
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
     }
 
     return ok(builder.build().toXDR());
@@ -1129,13 +1236,9 @@ export async function buildBulkTrustlines(
   }
 }
 
-export interface AccountMergeOptions {
+export interface AccountMergeOptions extends MemoParams {
   autoFetchSequence?: boolean;
   checkExists?: boolean;
-  memo?: string;
-  memoType?: "text" | "id" | "hash" | "return";
-  requireMemo?: boolean;
-  memoValidator?: (memo: string) => SorokitResult<void>;
   /**
    * Pre-fetched sequence number for the source account.
    * When provided, no Horizon `loadAccount` call is made.
