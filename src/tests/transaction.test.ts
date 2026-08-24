@@ -15,6 +15,14 @@ import {
   calculateFeeTiers,
   fetchFeeTiers,
   FEE_TIERS_CACHE_KEY,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
 } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
@@ -835,6 +843,7 @@ describe("estimateFee — caching", () => {
     mockAddOperation.mockReset();
     mockAddMemo.mockReset();
     mockSetTimeout.mockReset();
+    clearFeeHistory();
     vi.clearAllMocks();
 
     // Default: simulation returns a success result
@@ -989,6 +998,122 @@ describe("estimateFee — caching", () => {
       );
 
       expect(cache.setCalls[0]?.ttl).toBe(customTtl);
+    });
+  });
+
+  describe("adaptive fee cache TTL based on network congestion trends (#386)", () => {
+    it("safely falls back to default 5-minute TTL when history is empty or invalid", () => {
+      expect(calculateAdaptiveFeeTtl(100, [])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(100, undefined)).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(100, [0, -50, NaN])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(0, [100])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+      expect(calculateAdaptiveFeeTtl(-10, [100])).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+    });
+
+    it("applies up to 10-minute TTL when fee change is stable (<5%)", () => {
+      // 2% increase: 1000 -> 1020
+      expect(calculateAdaptiveFeeTtl(1020, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+      // 4% decrease: 1000 -> 960
+      expect(calculateAdaptiveFeeTtl(960, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+      // 0% change: exactly same fee
+      expect(calculateAdaptiveFeeTtl(1000, [1000])).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+    });
+
+    it("applies intermediate 5-minute TTL when fee change is moderate (5% to 10%)", () => {
+      // Exactly 5% increase: 1000 -> 1050
+      expect(calculateAdaptiveFeeTtl(1050, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // 7.5% increase: 1000 -> 1075
+      expect(calculateAdaptiveFeeTtl(1075, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // Exactly 10% increase: 1000 -> 1100
+      expect(calculateAdaptiveFeeTtl(1100, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+      // 8% decrease: 1000 -> 920
+      expect(calculateAdaptiveFeeTtl(920, [1000])).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
+    });
+
+    it("applies ~2-minute TTL when fee change is volatile (>10%)", () => {
+      // 15% increase: 1000 -> 1150
+      expect(calculateAdaptiveFeeTtl(1150, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+      // 50% surge: 1000 -> 1500
+      expect(calculateAdaptiveFeeTtl(1500, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+      // 20% drop: 1000 -> 800
+      expect(calculateAdaptiveFeeTtl(800, [1000])).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+    });
+
+    it("bounds the stored fee history to FEE_HISTORY_MAX_ENTRIES", () => {
+      clearFeeHistory();
+      for (let i = 1; i <= FEE_HISTORY_MAX_ENTRIES + 10; i++) {
+        recordFeeEstimate(i * 100, "test-network");
+      }
+      const history = getFeeHistory("test-network");
+      expect(history.length).toBe(FEE_HISTORY_MAX_ENTRIES);
+      expect(history[0]).toBe(1100);
+      expect(history[history.length - 1]).toBe(3000);
+    });
+
+    it("isolates fee history across different network passphrases", () => {
+      clearFeeHistory();
+      recordFeeEstimate(100, "net-a");
+      recordFeeEstimate(500, "net-b");
+
+      expect(getFeeHistory("net-a")).toEqual([100]);
+      expect(getFeeHistory("net-b")).toEqual([500]);
+    });
+
+    it("integrates adaptive TTL into estimateFee during stable conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1020" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 2% change -> 10 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_MAX_MS);
+    });
+
+    it("integrates adaptive TTL into estimateFee during volatile conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1500" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 50% change -> 2 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_MIN_MS);
+    });
+
+    it("integrates adaptive TTL into estimateFee during intermediate conditions", async () => {
+      clearFeeHistory(networkConfig.networkPassphrase);
+      // Pre-populate with previous fee of 1000
+      recordFeeEstimate(1000, networkConfig.networkPassphrase);
+      mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1070" });
+
+      const cache = makeEmptyCache();
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      // 7% change -> 5 minute TTL
+      expect(cache.setCalls[0]?.ttl).toBe(ADAPTIVE_FEE_TTL_INTERMEDIATE_MS);
     });
   });
 

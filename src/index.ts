@@ -178,6 +178,14 @@ export type {
 export {
   calculateFeeTiers,
   fetchCongestionFeeEstimate,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
 } from "./transaction/estimateFee";
 export {
   findSwapPath,
