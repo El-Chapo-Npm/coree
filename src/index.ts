@@ -215,7 +215,7 @@ export {
   createTransactionContext,
 } from "./transaction/transactionContext";
 export type { TransactionBuilderContext } from "./transaction/transactionContext";
-export { buildAccountMerge } from "./transaction";
+export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
 export {
   exportTransactionHistory,
@@ -237,6 +237,10 @@ export type {
 export type {
   AccountCreateParams,
   AtomicSwapParams,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PathPaymentMode,
   PathPaymentParams,
   PaymentParams,

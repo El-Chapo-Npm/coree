@@ -36,6 +36,7 @@ import {
   clearSequenceCache,
   checkTrustlines,
   buildBulkTrustlines,
+  validateMemoPolicy,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -2807,6 +2808,299 @@ describe("custom memoValidator callback (#91)", () => {
 
     expect(result.status).toBe("ok");
     expect(validator).toHaveBeenCalledWith("REQ-OK");
+  });
+});
+
+describe("memo type enforcement and validation for transaction builders (#389)", () => {
+  const sourcePublicKey =
+    "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination =
+    "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+  const issuerPublicKey =
+    "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue({
+      accountId: () => sourcePublicKey,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+      subentry_count: 0,
+      balances: [],
+    });
+    transactionBuilderInstances.length = 0;
+  });
+
+  describe("validateMemoPolicy unit tests", () => {
+    it("preserves backward compatibility when memoValidation is omitted", () => {
+      expect(validateMemoPolicy({ memo: "test" }).status).toBe("ok");
+      expect(validateMemoPolicy({}).status).toBe("ok");
+      expect(validateMemoPolicy({ requireMemo: true, memo: "test" }).status).toBe("ok");
+      expect(validateMemoPolicy({ requireMemo: true }).status).toBe("error");
+    });
+
+    describe("rule: required", () => {
+      it("accepts valid non-empty memo", () => {
+        const result = validateMemoPolicy({ memoValidation: "required", memo: "order-123" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("accepts object config with rule: required", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "required" },
+          memo: "order-123",
+        });
+        expect(result.status).toBe("ok");
+      });
+
+      it("rejects missing memo (undefined)", () => {
+        const result = validateMemoPolicy({ memoValidation: "required" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+          expect(result.error.message).toBe("Memo is required for this transaction");
+        }
+      });
+
+      it("rejects empty string memo", () => {
+        const result = validateMemoPolicy({ memoValidation: "required", memo: "" });
+        expect(result.status).toBe("error");
+      });
+
+      it("uses custom errorMessage when provided", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "required", errorMessage: "Deposit memo is mandatory" },
+        });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("Deposit memo is mandatory");
+        }
+      });
+    });
+
+    describe("rule: prohibit", () => {
+      it("accepts when memo is omitted (undefined)", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("accepts when memo is empty string", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit", memo: "" });
+        expect(result.status).toBe("ok");
+      });
+
+      it("rejects when memo is provided", () => {
+        const result = validateMemoPolicy({ memoValidation: "prohibit", memo: "unwanted-memo" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+          expect(result.error.message).toBe("Memo is prohibited for this transaction");
+        }
+      });
+
+      it("uses custom errorMessage when provided", () => {
+        const result = validateMemoPolicy({
+          memoValidation: { rule: "prohibit", errorMessage: "No memo allowed for security reasons" },
+          memo: "hello",
+        });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("No memo allowed for security reasons");
+        }
+      });
+    });
+
+    describe("rule: require_format", () => {
+      it("validates against a RegExp pattern", () => {
+        const config = { rule: "require_format" as const, format: /^INV-\d{4}$/ };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "INV-2024" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "INV-ABC" });
+        expect(badResult.status).toBe("error");
+        if (badResult.status === "error") {
+          expect(badResult.error.message).toContain("does not match required format");
+        }
+      });
+
+      it("validates against a string regex pattern", () => {
+        const config = { rule: "require_format" as const, format: "^[A-Z0-9]{8}$" };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "ABCD1234" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "abcd1234" });
+        expect(badResult.status).toBe("error");
+      });
+
+      it("validates against a custom predicate function", () => {
+        const config = {
+          rule: "require_format" as const,
+          format: (memo: string) => memo.startsWith("TX_") && memo.length === 10,
+        };
+
+        const okResult = validateMemoPolicy({ memoValidation: config, memo: "TX_1234567" });
+        expect(okResult.status).toBe("ok");
+
+        const badResult = validateMemoPolicy({ memoValidation: config, memo: "RX_1234567" });
+        expect(badResult.status).toBe("error");
+      });
+
+      it("rejects when memo is missing under require_format", () => {
+        const config = { rule: "require_format" as const, format: /^INV-\d+$/ };
+        const result = validateMemoPolicy({ memoValidation: config });
+        expect(result.status).toBe("error");
+      });
+
+      it("rejects when format is missing under require_format", () => {
+        const config = { rule: "require_format" as const };
+        const result = validateMemoPolicy({ memoValidation: config, memo: "INV-1" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toContain("Format pattern is required");
+        }
+      });
+
+      it("uses custom errorMessage when format validation fails", () => {
+        const config = {
+          rule: "require_format" as const,
+          format: /^\d+$/,
+          errorMessage: "Memo must be purely numeric",
+        };
+        const result = validateMemoPolicy({ memoValidation: config, memo: "123a" });
+        expect(result.status).toBe("error");
+        if (result.status === "error") {
+          expect(result.error.message).toBe("Memo must be purely numeric");
+        }
+      });
+    });
+  });
+
+  describe("transaction builder integration with memoValidation", () => {
+    it("buildPaymentTransaction enforces required memo", async () => {
+      const errResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memoValidation: "required",
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Memo is required for this transaction");
+      }
+
+      const okResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "valid-memo",
+          memoValidation: "required",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildPaymentTransaction enforces prohibited memo", async () => {
+      const errResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "prohibited",
+          memoValidation: "prohibit",
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Memo is prohibited for this transaction");
+      }
+
+      const okResult = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memoValidation: "prohibit",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildCreateAccountTransaction enforces require_format", async () => {
+      const formatConfig = {
+        rule: "require_format" as const,
+        format: /^ACCT-\d{3}$/,
+        errorMessage: "Must be ACCT- followed by 3 digits",
+      };
+
+      const errResult = await buildCreateAccountTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          startingBalance: "10",
+          memo: "ACCT-99",
+          memoValidation: formatConfig,
+        },
+      );
+      expect(errResult.status).toBe("error");
+      if (errResult.status === "error") {
+        expect(errResult.error.message).toBe("Must be ACCT- followed by 3 digits");
+      }
+
+      const okResult = await buildCreateAccountTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          startingBalance: "10",
+          memo: "ACCT-123",
+          memoValidation: formatConfig,
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
+
+    it("buildTrustlineTransaction enforces memo policy", async () => {
+      const errResult = await buildTrustlineTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetCode: "USD",
+          assetIssuer: issuerPublicKey,
+          memoValidation: "required",
+        },
+      );
+      expect(errResult.status).toBe("error");
+
+      const okResult = await buildTrustlineTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetCode: "USD",
+          assetIssuer: issuerPublicKey,
+          memo: "TRUST-OK",
+          memoValidation: "required",
+        },
+      );
+      expect(okResult.status).toBe("ok");
+    });
   });
 });
 
