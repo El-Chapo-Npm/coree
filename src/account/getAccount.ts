@@ -14,6 +14,7 @@ import { createHorizonServer, createSorobanServer } from "../shared/serverFactor
  *
  * @param horizonUrl - Base URL of the Horizon server (e.g. `"https://horizon-testnet.stellar.org"`).
  * @param publicKey  - Stellar G-address of the account to look up.
+ * @param options    - Optional `signal` to abort in-flight requests on timeout (#392).
  * @returns `ok(AccountInfo)` on success, or an `error` SorokitResult on failure.
  *
  * @example
@@ -27,12 +28,13 @@ import { createHorizonServer, createSorobanServer } from "../shared/serverFactor
 export function getAccount(
   horizonUrl: string,
   publicKey: string,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<AccountInfo>> {
   const cacheKey = `getAccount:${horizonUrl}:${publicKey}`;
   return deduplicateRequest(cacheKey, async () => {
     try {
       const account = await retryWithBackoff(async () => {
-        const server = createHorizonServer(horizonUrl);
+        const server = createHorizonServer(horizonUrl, options);
         return await server.loadAccount(publicKey);
       });
 

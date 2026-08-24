@@ -25,6 +25,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import type {
   MemoParams,
+  MemoValidationConfig,
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,

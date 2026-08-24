@@ -12,10 +12,11 @@ import type { AccountInfo } from "./types";
 export async function getAccountsBatch(
   horizonUrl: string,
   publicKeys: string[],
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>> {
   try {
     const settled = await Promise.allSettled(
-      publicKeys.map((publicKey) => getAccount(horizonUrl, publicKey)),
+      publicKeys.map((publicKey) => getAccount(horizonUrl, publicKey, options)),
     );
 
     const results = settled.map((r): SorokitResult<AccountInfo> =>

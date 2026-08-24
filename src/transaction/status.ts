@@ -30,6 +30,7 @@ export async function getTransactionStatus(
   horizonUrl: string,
   hash: string,
   cache?: SorokitCache,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
   if (cache) {
     const cached = cache.get(`tx:${hash}`);
@@ -39,7 +40,7 @@ export async function getTransactionStatus(
   }
 
   try {
-    const server = createHorizonServer(horizonUrl);
+    const server = createHorizonServer(horizonUrl, options);
     const tx = await server.transactions().transaction(hash).call();
 
     // Horizon reports ledger_attr as 0 (or omits it) for a transaction that has

@@ -60,8 +60,9 @@ export async function getAssetBalances(
   publicKey: string,
   filter?: AssetBalanceFilter,
   trustedIssuers?: string[] | null,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<AssetBalance[]>> {
-  const result = await getAccount(horizonUrl, publicKey);
+  const result = await getAccount(horizonUrl, publicKey, options);
   if (result.status === "error") return result;
 
   let balances = result.data.balances;

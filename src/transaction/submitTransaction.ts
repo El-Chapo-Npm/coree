@@ -89,6 +89,7 @@ export async function submitTransaction(
   networkPassphrase: string,
   signedXdr: string,
   cache?: SorokitCache,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
   if (isXdrInvalidError(signedXdr)) {
     return err(
@@ -109,7 +110,7 @@ export async function submitTransaction(
     }
 
     const response = await retryWithBackoff(async () => {
-      const server = createHorizonServer(horizonUrl);
+      const server = createHorizonServer(horizonUrl, options);
       return await server.submitTransaction(tx);
     });
 

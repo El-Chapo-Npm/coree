@@ -83,10 +83,14 @@ import {
 import type { ErrorCodeTransformer } from "../shared/errors";
 import { SDK_VERSION } from "../shared/constants";
 import {
-  getTimeout,
+  resolveOperationTimeout,
   type GlobalTimeoutOverride,
   type OperationType,
 } from "../shared/config";
+import {
+  runWithTimeout,
+  isOperationTimeoutError,
+} from "../shared/timeout";
 import type { NetworkType } from "../network/config";
 import { checkNetworkHealth } from "../network";
 import type { NetworkHealthReport } from "../network";
@@ -197,6 +201,12 @@ export interface SorokitClientConfig {
    * Can be overridden per-call via timeoutMs parameter.
    */
   timeoutMs?: GlobalTimeoutOverride;
+  /**
+   * Default timeout (ms) applied to every network-bound operation (#392).
+   * Defaults to 30 seconds. Per-call `timeoutMs` arguments take precedence,
+   * as does the global `timeoutMs` override above.
+   */
+  defaultTimeoutMs?: number;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -605,6 +615,19 @@ export function validateClientConfig(
     }
   }
 
+  if (config.defaultTimeoutMs !== undefined) {
+    if (
+      typeof config.defaultTimeoutMs !== "number" ||
+      isNaN(config.defaultTimeoutMs) ||
+      config.defaultTimeoutMs < 0
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "defaultTimeoutMs must be a non-negative number",
+      );
+    }
+  }
+
   return ok(undefined);
 }
 
@@ -678,6 +701,39 @@ export function createSorokitClient(
     config.maxTxPerSecond !== undefined
       ? new TokenBucketRateLimiter(config.maxTxPerSecond)
       : null;
+
+  /**
+   * Enforce the operation timeout window (#392).
+   * Precedence: per-call timeoutMs > config.timeoutMs > config.defaultTimeoutMs
+   * > per-operation default > 30 s. Timed-out requests are aborted where
+   * supported (the signal is forwarded into Horizon/RPC fetch) and surface as
+   * SorokitErrorCode.OPERATION_TIMEOUT — distinct from explicit cancellation.
+   */
+  const guard = <T>(
+    opType: OperationType,
+    perCallMs: number | undefined,
+    run: (signal?: AbortSignal) => Promise<SorokitResult<T>>,
+  ): Promise<SorokitResult<T>> =>
+    runWithTimeout(
+      resolveOperationTimeout(
+        opType,
+        perCallMs ?? null,
+        config.defaultTimeoutMs ?? null,
+        globalTimeout ?? null,
+      ),
+      run,
+    ).catch((cause) => {
+      if (!isOperationTimeoutError(cause)) throw cause;
+      logger.warn("operation.timeout", {
+        operation: opType,
+        timeoutMs: cause.timeoutMs,
+      });
+      return err(
+        SorokitErrorCode.OPERATION_TIMEOUT,
+        cause.message,
+        cause,
+      ) as SorokitResult<T>;
+    });
 
   logger.info(
     "client.create",
@@ -792,126 +848,142 @@ export function createSorokitClient(
             () => connectWallet(adapter, cache),
           );
         };
-        return withErrorHandling(
-          errorHandler,
-          {
-            functionName: "wallet.connect",
-            params: { walletType: adapter.walletType },
-          },
-          action,
-        ).then(applyTx);
+        return guard("wallet_connect", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "wallet.connect",
+              params: { walletType: adapter.walletType },
+            },
+            action,
+          ).then(applyTx),
+        );
       },
       disconnect: (adapter, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "wallet.disconnect",
-            params: { walletType: adapter.walletType },
-          },
-          () =>
-            withLogging(
-              logger,
-              "wallet.disconnect",
-              { walletType: adapter.walletType },
-              () => disconnectWallet(adapter, cache),
-            ),
-        ).then(applyTx),
+        guard("wallet_disconnect", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "wallet.disconnect",
+              params: { walletType: adapter.walletType },
+            },
+            () =>
+              withLogging(
+                logger,
+                "wallet.disconnect",
+                { walletType: adapter.walletType },
+                () => disconnectWallet(adapter, cache),
+              ),
+          ).then(applyTx),
+        ),
       signTransaction: (adapter, input, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "wallet.signTransaction",
-            params: { walletType: adapter.walletType },
-          },
-          () =>
-            withLogging(
-              logger,
-              "wallet.signTransaction",
-              { walletType: adapter.walletType },
-              () => signTransaction(adapter, input),
-            ),
-        ).then(applyTx),
+        guard("wallet_sign", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "wallet.signTransaction",
+              params: { walletType: adapter.walletType },
+            },
+            () =>
+              withLogging(
+                logger,
+                "wallet.signTransaction",
+                { walletType: adapter.walletType },
+                () => signTransaction(adapter, input),
+              ),
+          ).then(applyTx),
+        ),
       emptyState: () => emptyWalletState(),
     },
 
     account: {
       get: (publicKey, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "account.get", params: { publicKey } },
-          () =>
-            withLogging(logger, "account.get", { publicKey }, async () => {
-              const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
-              if (cache) {
-                const cachedVal = cache.get(cacheKey);
-                if (cachedVal) return ok(cachedVal as AccountInfo);
-              }
-              const res = await getAccount(horizonUrl, publicKey);
-              if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-              return res;
-            }),
-        ).then(applyTx),
+        guard("account_get", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "account.get", params: { publicKey } },
+            () =>
+              withLogging(logger, "account.get", { publicKey }, async () => {
+                const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
+                if (cache) {
+                  const cachedVal = cache.get(cacheKey);
+                  if (cachedVal) return ok(cachedVal as AccountInfo);
+                }
+                const res = await getAccount(horizonUrl, publicKey, { signal });
+                if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                return res;
+              }),
+          ).then(applyTx),
+        ),
       getAccountsBatch: (publicKeys, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "account.getAccountsBatch", params: { publicKeys } },
-          () =>
-            withLogging(
-              logger,
-              "account.getAccountsBatch",
-              { publicKeys },
-              () => getAccountsBatch(horizonUrl, publicKeys),
-            ),
-        ).then(applyTx),
+        guard("account_get_batch", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "account.getAccountsBatch", params: { publicKeys } },
+            () =>
+              withLogging(
+                logger,
+                "account.getAccountsBatch",
+                { publicKeys },
+                () => getAccountsBatch(horizonUrl, publicKeys, { signal }),
+              ),
+          ).then(applyTx),
+        ),
       getBalances: (publicKey, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "account.getBalances", params: { publicKey } },
-          () =>
-            withLogging(
-              logger,
-              "account.getBalances",
-              { publicKey },
-              async () => {
-                const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
-                if (cache) {
-                  const cachedVal = cache.get(cacheKey);
-                  if (cachedVal) return ok(cachedVal as AssetBalance[]);
-                }
-                const res = await getBalances(horizonUrl, publicKey);
-                if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-                return res;
-              },
-            ),
-        ).then(applyTx),
+        guard("account_get_balances", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "account.getBalances", params: { publicKey } },
+            () =>
+              withLogging(
+                logger,
+                "account.getBalances",
+                { publicKey },
+                async () => {
+                  const cacheKey = `account:balances:${horizonUrl}:${publicKey}`;
+                  if (cache) {
+                    const cachedVal = cache.get(cacheKey);
+                    if (cachedVal) return ok(cachedVal as AssetBalance[]);
+                  }
+                  const res = await getBalances(horizonUrl, publicKey, { signal });
+                  if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                  return res;
+                },
+              ),
+          ).then(applyTx),
+        ),
       getAssetBalances: (publicKey, filter, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "account.getAssetBalances",
-            params: { publicKey, filter },
-          },
-          () =>
-            withLogging(
-              logger,
-              "account.getAssetBalances",
-              { publicKey, filter },
-              async () => {
-                const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
-                if (cache) {
-                  const cachedVal = cache.get(cacheKey);
-                  if (cachedVal) return ok(cachedVal as AssetBalance[]);
-                }
-                const res = await getAssetBalances(
-                  horizonUrl,
-                  publicKey,
-                  filter,
-                );
-                if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-                return res;
-              },
-            ),
-        ).then(applyTx),
+        guard("account_get_balances", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "account.getAssetBalances",
+              params: { publicKey, filter },
+            },
+            () =>
+              withLogging(
+                logger,
+                "account.getAssetBalances",
+                { publicKey, filter },
+                async () => {
+                  const cacheKey = `account:assetBalances:${horizonUrl}:${publicKey}:${JSON.stringify(filter ?? {})}`;
+                  if (cache) {
+                    const cachedVal = cache.get(cacheKey);
+                    if (cachedVal) return ok(cachedVal as AssetBalance[]);
+                  }
+                  const res = await getAssetBalances(
+                    horizonUrl,
+                    publicKey,
+                    filter,
+                    undefined,
+                    { signal },
+                  );
+                  if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                  return res;
+                },
+              ),
+          ).then(applyTx),
+        ),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
@@ -923,304 +995,339 @@ export function createSorokitClient(
 
     transaction: {
       buildPayment: (sourcePublicKey, params, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.buildPayment",
-            params: { sourcePublicKey, ...params },
-          },
-          () => {
-            logger.debug("transaction.buildPayment", { sourcePublicKey });
-            return buildPaymentTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-              client.trustedIssuers,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildPayment",
+              params: { sourcePublicKey, ...params },
+            },
+            () => {
+              logger.debug("transaction.buildPayment", { sourcePublicKey });
+              return buildPaymentTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                params,
+                client.trustedIssuers,
+              );
+            },
+          ).then(applyTx),
+        ),
       buildCreateAccount: (sourcePublicKey, params, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.buildCreateAccount",
-            params: { sourcePublicKey, ...params },
-          },
-          () => {
-            logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
-            return buildCreateAccountTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildCreateAccount",
+              params: { sourcePublicKey, ...params },
+            },
+            () => {
+              logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
+              return buildCreateAccountTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                params,
+              );
+            },
+          ).then(applyTx),
+        ),
       buildTrustline: (sourcePublicKey, params, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.buildTrustline",
-            params: { sourcePublicKey, ...params },
-          },
-          () => {
-            logger.debug("transaction.buildTrustline", { sourcePublicKey });
-            return buildTrustlineTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-              client.trustedIssuers,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildTrustline",
+              params: { sourcePublicKey, ...params },
+            },
+            () => {
+              logger.debug("transaction.buildTrustline", { sourcePublicKey });
+              return buildTrustlineTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                params,
+                client.trustedIssuers,
+              );
+            },
+          ).then(applyTx),
+        ),
       buildAccountMerge: (
         sourcePublicKey,
         destinationPublicKey,
         options,
         timeoutMs,
       ) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.buildAccountMerge",
-            params: { sourcePublicKey, destinationPublicKey, options },
-          },
-          () => {
-            logger.debug("transaction.buildAccountMerge", {
-              sourcePublicKey,
-              destinationPublicKey,
-            });
-            return buildAccountMerge(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              destinationPublicKey,
-              options,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildAccountMerge",
+              params: { sourcePublicKey, destinationPublicKey, options },
+            },
+            () => {
+              logger.debug("transaction.buildAccountMerge", {
+                sourcePublicKey,
+                destinationPublicKey,
+              });
+              return buildAccountMerge(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                destinationPublicKey,
+                options,
+              );
+            },
+          ).then(applyTx),
+        ),
       submit: async (signedXdr, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.submit" },
-          async () => {
-            logger.debug("transaction.submit");
-            if (rateLimiter) await rateLimiter.acquire();
-            return submitTransaction(
-              horizonUrl,
-              networkPassphrase,
-              signedXdr,
-              cache,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_submit", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "transaction.submit" },
+            async () => {
+              logger.debug("transaction.submit");
+              if (rateLimiter) await rateLimiter.acquire();
+              return submitTransaction(
+                horizonUrl,
+                networkPassphrase,
+                signedXdr,
+                cache,
+                { signal },
+              );
+            },
+          ).then(applyTx),
+        ),
       getStatus: (hash, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.getStatus", params: { hash } },
-          () => {
-            logger.debug("transaction.getStatus", { hash });
-            return getTransactionStatus(horizonUrl, hash);
-          },
-        ).then(applyTx),
+        guard("tx_status", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "transaction.getStatus", params: { hash } },
+            () => {
+              logger.debug("transaction.getStatus", { hash });
+              return getTransactionStatus(horizonUrl, hash, cache, { signal });
+            },
+          ).then(applyTx),
+        ),
       estimateFee: (input, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.estimateFee", params: { ...input } },
-          () => {
-            logger.debug("transaction.estimateFee");
-            return estimateFee(
-              rpcUrl,
-              horizonUrl,
-              networkConfig,
-              input,
-              cache,
-              undefined,
-              feeEstimateOptions,
-            );
-          },
-        ).then(applyTx),
+        guard("tx_estimate_fee", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "transaction.estimateFee", params: { ...input } },
+            () => {
+              logger.debug("transaction.estimateFee");
+              return estimateFee(
+                rpcUrl,
+                horizonUrl,
+                networkConfig,
+                input,
+                cache,
+                undefined,
+                feeEstimateOptions,
+              );
+            },
+          ).then(applyTx),
+        ),
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);
       },
       validateDestination: (publicKey, options, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.validateDestination",
-            params: { publicKey, options },
-          },
-          () => {
-            logger.debug("transaction.validateDestination", { publicKey });
-            return validateDestination(publicKey, {
-              ...options,
-              horizonUrl: horizonUrl,
-            });
-          },
-        ).then(applyTx),
+        guard("tx_validate_destination", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.validateDestination",
+              params: { publicKey, options },
+            },
+            () => {
+              logger.debug("transaction.validateDestination", { publicKey });
+              return validateDestination(publicKey, {
+                ...options,
+                horizonUrl: horizonUrl,
+              });
+            },
+          ).then(applyTx),
+        ),
       queryHistory: (publicKey, query, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.queryHistory",
-            params: { publicKey, query },
-          },
-          () => {
-            logger.debug("transaction.queryHistory", { publicKey });
-            return queryTransactionHistory(horizonUrl, publicKey, {
-              ...query,
-              networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
-            });
-          },
-        ).then(applyTx),
+        guard("tx_query_history", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.queryHistory",
+              params: { publicKey, query },
+            },
+            () => {
+              logger.debug("transaction.queryHistory", { publicKey });
+              return queryTransactionHistory(horizonUrl, publicKey, {
+                ...query,
+                networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
+              });
+            },
+          ).then(applyTx),
+        ),
       exportHistory: (publicKey, options, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.exportHistory",
-            params: { publicKey, options },
-          },
-          () => {
-            logger.debug("transaction.exportHistory", { publicKey });
-            return exportTransactionHistory(horizonUrl, publicKey, {
-              ...options,
-              networkPassphrase:
-                options?.networkPassphrase ?? networkPassphrase,
-            });
-          },
-        ).then(applyTx),
+        guard("tx_export_history", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.exportHistory",
+              params: { publicKey, options },
+            },
+            () => {
+              logger.debug("transaction.exportHistory", { publicKey });
+              return exportTransactionHistory(horizonUrl, publicKey, {
+                ...options,
+                networkPassphrase:
+                  options?.networkPassphrase ?? networkPassphrase,
+              });
+            },
+          ).then(applyTx),
+        ),
       exportTransactionHistory: (publicKey, options, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "transaction.exportTransactionHistory",
-            params: { publicKey, options },
-          },
-          () => {
-            logger.debug("transaction.exportTransactionHistory", { publicKey });
-            return exportTransactionHistory(horizonUrl, publicKey, {
-              ...options,
-              networkPassphrase:
-                options?.networkPassphrase ?? networkPassphrase,
-            });
-          },
-        ).then(applyTx),
+        guard("tx_export_history", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.exportTransactionHistory",
+              params: { publicKey, options },
+            },
+            () => {
+              logger.debug("transaction.exportTransactionHistory", { publicKey });
+              return exportTransactionHistory(horizonUrl, publicKey, {
+                ...options,
+                networkPassphrase:
+                  options?.networkPassphrase ?? networkPassphrase,
+              });
+            },
+          ).then(applyTx),
+        ),
     },
 
     soroban: {
       getContractMethods: (contractId, ttlMs, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "soroban.getContractMethods",
-            params: { contractId },
-          },
-          () =>
-            withLogging(
-              logger,
-              "soroban.getContractMethods",
-              { contractId },
-              () =>
-                getContractMethods(rpcUrl, contractId, {
-                  ...(cache && { cache }),
-                  ...(ttlMs !== undefined && { ttlMs }),
-                }),
-            ),
-        ).then(applyTx),
+        guard("soroban_get_methods", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.getContractMethods",
+              params: { contractId },
+            },
+            () =>
+              withLogging(
+                logger,
+                "soroban.getContractMethods",
+                { contractId },
+                () =>
+                  getContractMethods(rpcUrl, contractId, {
+                    ...(cache && { cache }),
+                    ...(ttlMs !== undefined && { ttlMs }),
+                  }),
+              ),
+          ).then(applyTx),
+        ),
       simulate: (transactionXdr, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "soroban.simulate" },
-          () =>
-            withLogging(logger, "soroban.simulate", {}, () =>
-              simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
-            ),
-        ).then(applyTx),
+        guard("soroban_simulate", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "soroban.simulate" },
+            () =>
+              withLogging(logger, "soroban.simulate", {}, () =>
+                simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
+              ),
+          ).then(applyTx),
+        ),
       prepare: (params, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "soroban.prepare",
-            params: { contractId: params.contractId, method: params.method },
-          },
-          () =>
-            withLogging(
-              logger,
-              "soroban.prepare",
-              { contractId: params.contractId, method: params.method },
-              () =>
-                prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
-            ),
-        ).then(applyTx),
+        guard("soroban_prepare", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.prepare",
+              params: { contractId: params.contractId, method: params.method },
+            },
+            () =>
+              withLogging(
+                logger,
+                "soroban.prepare",
+                { contractId: params.contractId, method: params.method },
+                () =>
+                  prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
+              ),
+          ).then(applyTx),
+        ),
       execute: (signedXdr, pollConfig, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "soroban.execute" },
-          () =>
-            executeContract(
-              rpcUrl,
-              networkConfig,
-              signedXdr,
-              pollConfig ?? defaultPollConfig,
-              logger,
-              contractStateTracker,
-            ),
-        ).then(applyTx),
+        guard("soroban_execute", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "soroban.execute" },
+            () =>
+              executeContract(
+                rpcUrl,
+                networkConfig,
+                signedXdr,
+                pollConfig ?? defaultPollConfig,
+                logger,
+                contractStateTracker,
+              ),
+          ).then(applyTx),
+        ),
       invoke: (params, signFn, pollConfig, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "soroban.invoke",
-            params: { contractId: params.contractId, method: params.method },
-          },
-          () =>
-            withLogging(
-              logger,
-              "soroban.invoke",
-              { contractId: params.contractId, method: params.method },
-              () =>
-                invokeContract(
-                  rpcUrl,
-                  networkConfig,
-                  horizonUrl,
-                  {
+        guard("soroban_invoke", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.invoke",
+              params: { contractId: params.contractId, method: params.method },
+            },
+            () =>
+              withLogging(
+                logger,
+                "soroban.invoke",
+                { contractId: params.contractId, method: params.method },
+                () =>
+                  invokeContract(
+                    rpcUrl,
+                    networkConfig,
+                    horizonUrl,
+                    {
+                      ...params,
+                      ...(params.stateTracker === undefined &&
+                      contractStateTracker !== undefined
+                        ? { stateTracker: contractStateTracker }
+                        : {}),
+                    },
+                    signFn,
+                    pollConfig ?? defaultPollConfig,
+                    logger,
+                  ),
+              ),
+          ).then(applyTx),
+        ),
+      read: (params, timeoutMs) =>
+        guard("soroban_read", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.read",
+              params: { contractId: params.contractId, method: params.method },
+            },
+            () =>
+              withLogging(
+                logger,
+                "soroban.read",
+                { contractId: params.contractId, method: params.method },
+                () =>
+                  readContract(rpcUrl, horizonUrl, networkConfig, {
                     ...params,
                     ...(params.stateTracker === undefined &&
                     contractStateTracker !== undefined
                       ? { stateTracker: contractStateTracker }
                       : {}),
-                  },
-                  signFn,
-                  pollConfig ?? defaultPollConfig,
-                  logger,
-                ),
-            ),
-        ).then(applyTx),
-      read: (params, timeoutMs) =>
-        withErrorHandling(
-          errorHandler,
-          {
-            functionName: "soroban.read",
-            params: { contractId: params.contractId, method: params.method },
-          },
-          () =>
-            withLogging(
-              logger,
-              "soroban.read",
-              { contractId: params.contractId, method: params.method },
-              () =>
-                readContract(rpcUrl, horizonUrl, networkConfig, {
-                  ...params,
-                  ...(params.stateTracker === undefined &&
-                  contractStateTracker !== undefined
-                    ? { stateTracker: contractStateTracker }
-                    : {}),
-                }),
-            ),
-        ).then(applyTx),
+                  }),
+              ),
+          ).then(applyTx),
+        ),
     },
 
     network: {
