@@ -1271,6 +1271,50 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
       // If run sequentially, it would take >= 300ms. Since it runs in parallel, it should take ~100ms.
       expect(duration).toBeLessThan(250);
     });
+
+    it("deduplicates duplicate account keys in batch requests and maps results to all positions", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const a1 = createAccount("1");
+      const a2 = createAccount("2");
+
+      const callCounts: Record<string, number> = {};
+      vi.mocked(getAccount).mockImplementation(async (_url, key) => {
+        callCounts[key] = (callCounts[key] ?? 0) + 1;
+        return key === "key1" ? ok(a1) : ok(a2);
+      });
+
+      const result = await getAccountsBatch("http://horizon", [
+        "key1",
+        "key2",
+        "key1",
+        "key1",
+        "key2",
+      ]);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toHaveLength(5);
+        expect(result.data[0].data).toEqual(a1);
+        expect(result.data[1].data).toEqual(a2);
+        expect(result.data[2].data).toEqual(a1);
+        expect(result.data[3].data).toEqual(a1);
+        expect(result.data[4].data).toEqual(a2);
+      }
+      expect(callCounts["key1"]).toBe(1);
+      expect(callCounts["key2"]).toBe(1);
+    });
+
+    it("handles empty publicKeys array in getAccountsBatch", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const result = await getAccountsBatch("http://horizon", []);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual([]);
+      }
+    });
   });
 });
 

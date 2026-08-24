@@ -539,3 +539,10 @@ export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promis
 export function getInflightRequestCount(): number {
   return _inflightRequests.size;
 }
+
+/**
+ * Clear all in-flight request records. Useful for test isolation.
+ */
+export function clearInflightRequests(): void {
+  _inflightRequests.clear();
+}
