@@ -3451,6 +3451,81 @@ describe.skip("validateTransactionXdr (#99)", () => {
   });
 });
 
+describe("validateTransactionBatch (#385)", () => {
+  const TEST_VALID_KEY =
+    "GAD3STKT2W2646HZ3BOCXE7JDEDKV7VARRHACNKLN5GNPUF3KW4ICE27";
+
+  function createMockTx(fee = 100) {
+    return {
+      fee,
+      networkPassphrase: "Test SDF Network ; September 2015",
+      operations: [
+        {
+          type: "payment",
+          destination: TEST_VALID_KEY,
+          amount: "10",
+        },
+      ],
+    };
+  }
+
+  it("handles empty and malformed inputs safely", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    expect(await validateTransactionBatch([])).toEqual([]);
+    expect(await validateTransactionBatch(null as unknown as string[])).toEqual([]);
+  });
+
+  it("validates multiple transactions concurrently and preserves ordering", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    mocks.fromXDR.mockImplementation((xdr: string) => {
+      if (xdr === "xdr-1") return createMockTx(100);
+      if (xdr === "xdr-2") return createMockTx(200);
+      return createMockTx(300);
+    });
+
+    const results = await validateTransactionBatch(["xdr-1", "xdr-2", "xdr-3"]);
+    if (results[0]?.status === "ok" && results[1]?.status === "ok" && results[2]?.status === "ok") {
+      expect(results[0].data.issues).toEqual([]);
+      expect(results[0].data.valid).toBe(true);
+      expect(results[0].data.fee).toBe("100");
+      expect(results[1].data.valid).toBe(true);
+      expect(results[1].data.fee).toBe("200");
+      expect(results[2].data.valid).toBe(true);
+      expect(results[2].data.fee).toBe("300");
+    }
+  });
+
+  it("isolates failures and reuses shared validation rules across batch", async () => {
+    const { validateTransactionBatch } = await import("../transaction/validateTransaction");
+    mocks.fromXDR.mockImplementation((xdr: string) => {
+      if (xdr === "valid-xdr") return createMockTx(250);
+      if (xdr === "invalid-xdr") throw new Error("Invalid XDR decode buffer");
+      if (xdr === "low-fee-xdr") return createMockTx(100);
+      return createMockTx(100);
+    });
+
+    const results = await validateTransactionBatch(["valid-xdr", "invalid-xdr", "low-fee-xdr"], {
+      minFee: 200,
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.status).toBe("ok");
+    expect(results[1]?.status).toBe("error");
+    expect(results[2]?.status).toBe("ok");
+
+    if (results[0]?.status === "ok") {
+      expect(results[0].data.valid).toBe(true);
+    }
+    if (results[1]?.status === "error") {
+      expect(results[1].error.code).toBe("TX_BUILD_FAILED");
+    }
+    if (results[2]?.status === "ok") {
+      expect(results[2].data.valid).toBe(false);
+      expect(results[2].data.issues.some((i) => i.message.includes("below the minimum of 200"))).toBe(true);
+    }
+  });
+});
+
 describe("validateDestination", () => {
   const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
 

@@ -93,7 +93,7 @@ export {
   formatTransactionsToCsv,
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
-export { validateTransaction } from "./validateTransaction";
+export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
 export { validateTransactionOffline } from "./validateTransactionOffline";
 export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
