@@ -206,7 +206,10 @@ export {
   TRANSACTION_CONTEXT_TTL_MS,
   createTransactionContext,
 } from "./transaction/transactionContext";
-export type { TransactionBuilderContext } from "./transaction/transactionContext";
+export type {
+  TransactionBuilderContext,
+  SequenceValidationResult,
+} from "./transaction/transactionContext";
 export { buildAccountMerge } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
 export {
@@ -315,6 +318,32 @@ export type {
   ContractMethodSchema,
   ContractMethodParam,
 } from "./soroban/contractMetadata";
+// ─── Contract version detection & upgrade hook (#393) ─────────────────────────
+export {
+  getContractVersion,
+  invalidateContractVersionCache,
+  resetContractVersionTracking,
+} from "./soroban/contractVersion";
+export type {
+  ContractVersionInfo,
+  ContractUpgradeEvent,
+  OnContractUpgrade,
+  ContractVersionOptions,
+} from "./soroban/contractVersion";
+// ─── Contract error decoding (#391) ───────────────────────────────────────────
+export {
+  decodeContractError,
+  DEFAULT_CONTRACT_ERROR_MAP,
+  FACTORY_CONTRACT_ERRORS,
+  ROUTER_CONTRACT_ERRORS,
+  FACTORY_ERROR_CODES,
+  ROUTER_ERROR_CODES,
+} from "./soroban/contractErrors";
+export type {
+  ContractErrorInfo,
+  ContractErrorMap,
+  DecodedContractError,
+} from "./soroban/contractErrors";
 export { ContractInteractionBuilder } from "./soroban";
 export type {
   ContractInteractionBuilderConfig,

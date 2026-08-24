@@ -43,6 +43,31 @@ export type {
   ContractMethodSchema,
   ContractMethodParam,
 } from "./contractMetadata";
+export {
+  getContractVersion,
+  invalidateContractVersionCache,
+  resetContractVersionTracking,
+  parseVersionFromMeta,
+} from "./contractVersion";
+export type {
+  ContractVersionInfo,
+  ContractUpgradeEvent,
+  OnContractUpgrade,
+  ContractVersionOptions,
+} from "./contractVersion";
+export {
+  decodeContractError,
+  DEFAULT_CONTRACT_ERROR_MAP,
+  FACTORY_CONTRACT_ERRORS,
+  ROUTER_CONTRACT_ERRORS,
+  FACTORY_ERROR_CODES,
+  ROUTER_ERROR_CODES,
+} from "./contractErrors";
+export type {
+  ContractErrorInfo,
+  ContractErrorMap,
+  DecodedContractError,
+} from "./contractErrors";
 export { ContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
   ContractInteractionBuilderConfig,

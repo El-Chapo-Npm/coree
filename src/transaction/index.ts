@@ -100,7 +100,10 @@ export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "./transactionContext";
-export type { TransactionBuilderContext } from "./transactionContext";
+export type {
+  TransactionBuilderContext,
+  SequenceValidationResult,
+} from "./transactionContext";
 export {
   createTransactionBuilder,
 } from "./transactionBuilder";

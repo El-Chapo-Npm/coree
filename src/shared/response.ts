@@ -45,6 +45,8 @@ export enum SorokitErrorCode {
   TX_SUBMIT_FAILED = "TX_SUBMIT_FAILED",
   TX_FETCH_FAILED = "TX_FETCH_FAILED",
   TX_NOT_FOUND = "TX_NOT_FOUND",
+  /** The cached sequence conflicts with the on-ledger sequence (#394) */
+  TX_SEQUENCE_CONFLICT = "TX_SEQUENCE_CONFLICT",
   ROUTER_INVALID_PATH = "ROUTER_INVALID_PATH",
   ROUTER_INSUFFICIENT_LIQUIDITY = "ROUTER_INSUFFICIENT_LIQUIDITY",
   ROUTER_SLIPPAGE_EXCEEDED = "ROUTER_SLIPPAGE_EXCEEDED",
@@ -59,6 +61,9 @@ export enum SorokitErrorCode {
   // Network
   NETWORK_ERROR = "NETWORK_ERROR",
   INVALID_NETWORK = "INVALID_NETWORK",
+
+  /** Operation exceeded its configured execution window (#392) */
+  OPERATION_TIMEOUT = "OPERATION_TIMEOUT",
 
   // Validation / Config
   INVALID_CONFIG = "INVALID_CONFIG",

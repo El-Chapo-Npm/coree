@@ -112,7 +112,16 @@ function readUnsignedLeb128(
   throw new Error("Invalid Wasm LEB128 value.");
 }
 
-function readContractSpecSection(wasm: Uint8Array): Uint8Array {
+export interface WasmCustomSection {
+  name: string;
+  data: Uint8Array;
+}
+
+/**
+ * Read every custom section of a Wasm module.
+ * Throws on malformed module structure.
+ */
+export function readWasmCustomSections(wasm: Uint8Array): WasmCustomSection[] {
   if (
     wasm.length < 8 ||
     wasm[0] !== 0x00 ||
@@ -123,6 +132,7 @@ function readContractSpecSection(wasm: Uint8Array): Uint8Array {
     throw new Error("Invalid Wasm module.");
   }
 
+  const sections: WasmCustomSection[] = [];
   let offset = 8;
   while (offset < wasm.length) {
     const sectionId = wasm[offset];
@@ -146,15 +156,24 @@ function readContractSpecSection(wasm: Uint8Array): Uint8Array {
       }
 
       const sectionName = new TextDecoder().decode(wasm.subarray(offset, nameEnd));
-      if (sectionName === SPEC_SECTION_NAME) {
-        return wasm.subarray(nameEnd, sectionEnd);
-      }
+      sections.push({
+        name: sectionName,
+        data: wasm.subarray(nameEnd, sectionEnd),
+      });
     }
 
     offset = sectionEnd;
   }
 
-  throw new Error("Contract spec section not found.");
+  return sections;
+}
+
+function readContractSpecSection(wasm: Uint8Array): Uint8Array {
+  const spec = readWasmCustomSections(wasm).find(
+    (section) => section.name === SPEC_SECTION_NAME,
+  );
+  if (!spec) throw new Error("Contract spec section not found.");
+  return spec.data;
 }
 
 function readSpecEntries(spec: Uint8Array): xdr.ScSpecEntry[] {
@@ -206,6 +225,57 @@ function getWasmHash(
   }
 
   return ok(executable.wasmHash());
+}
+
+/**
+ * Fetch the deployed Wasm bytecode for a contract via the shared RPC path.
+ * Reused by both method discovery and version detection (#393).
+ */
+export async function fetchContractWasm(
+  rpcUrl: string,
+  contractId: string,
+): Promise<SorokitResult<Uint8Array>> {
+  try {
+    const rpc = createSorobanServer(rpcUrl);
+    const contract = new Contract(contractId);
+    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
+    const instanceEntry = instanceResult.entries[0];
+
+    if (!instanceEntry) {
+      return err(
+        SorokitErrorCode.CONTRACT_READ_FAILED,
+        `Contract not found: ${contractId}`,
+      );
+    }
+
+    const contractData = instanceEntry.val.contractData();
+    const wasmHashResult = getWasmHash(
+      contractData.val().instance().executable(),
+      contractId,
+    );
+    if (wasmHashResult.status === "error") return wasmHashResult;
+
+    const codeKey = xdr.LedgerKey.contractCode(
+      new xdr.LedgerKeyContractCode({ hash: wasmHashResult.data }),
+    );
+    const codeResult = await rpc.getLedgerEntries(codeKey as any);
+    const codeEntry = codeResult.entries[0];
+
+    if (!codeEntry) {
+      return err(
+        SorokitErrorCode.CONTRACT_READ_FAILED,
+        `Contract code not found: ${contractId}`,
+      );
+    }
+
+    return ok(codeEntry.val.contractCode().code());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.CONTRACT_READ_FAILED,
+      `Failed to fetch contract code: ${toMessage(cause)}`,
+      cause,
+    );
+  }
 }
 
 function specTypeToString(typeDef: unknown): string {
@@ -365,39 +435,10 @@ export async function getContractMethods(
   if (cached) return ok(cached);
 
   try {
-    const rpc = createSorobanServer(rpcUrl);
-    const contract = new Contract(contractId);
-    const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
-    const instanceEntry = instanceResult.entries[0];
+    const wasmResult = await fetchContractWasm(rpcUrl, contractId);
+    if (wasmResult.status === "error") return wasmResult;
 
-    if (!instanceEntry) {
-      return err(
-        SorokitErrorCode.CONTRACT_READ_FAILED,
-        `Contract not found: ${contractId}`,
-      );
-    }
-
-    const contractData = instanceEntry.val.contractData();
-    const wasmHashResult = getWasmHash(
-      contractData.val().instance().executable(),
-      contractId,
-    );
-    if (wasmHashResult.status === "error") return wasmHashResult;
-
-    const codeKey = xdr.LedgerKey.contractCode(
-      new xdr.LedgerKeyContractCode({ hash: wasmHashResult.data }),
-    );
-    const codeResult = await rpc.getLedgerEntries(codeKey as any);
-    const codeEntry = codeResult.entries[0];
-
-    if (!codeEntry) {
-      return err(
-        SorokitErrorCode.CONTRACT_READ_FAILED,
-        `Contract code not found: ${contractId}`,
-      );
-    }
-
-    const methods = parseContractMethodsFromWasm(codeEntry.val.contractCode().code());
+    const methods = parseContractMethodsFromWasm(wasmResult.data);
     setCachedMethods(cacheKey, methods, options);
 
     return ok(methods);
@@ -425,6 +466,8 @@ export function validateContractMethodMetadata(
 export const contractMetadataInternals = {
   parseContractMethodsFromWasm,
   readContractSpecSection,
+  readWasmCustomSections,
+  fetchContractWasm,
 };
 
 /**

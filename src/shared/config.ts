@@ -1,9 +1,11 @@
 /**
  * Per-operation timeout configuration (#207).
- * 
+ *
  * Defines default timeout values for different operation types.
  * These can be overridden per-call or globally at client creation.
  */
+
+import { DEFAULT_OPERATION_TIMEOUT_MS } from "./constants";
 
 /**
  * Operation type identifiers for timeout configuration.
@@ -71,6 +73,34 @@ export const DEFAULT_TIMEOUTS: Record<OperationType, number> = {
  * Set via createSorokitClient() config.
  */
 export type GlobalTimeoutOverride = number | null;
+
+/**
+ * Resolve the effective timeout for an operation (#392).
+ *
+ * Precedence:
+ * 1. Per-call override (the operation's `timeoutMs` parameter)
+ * 2. Client-level global override (`config.timeoutMs`)
+ * 3. Client-level default (`config.defaultTimeoutMs`)
+ * 4. Operation-specific default from DEFAULT_TIMEOUTS
+ * 5. DEFAULT_OPERATION_TIMEOUT_MS (30 s, from shared/constants)
+ */
+export function resolveOperationTimeout(
+  operationType: OperationType,
+  perCallMs?: number | null,
+  clientDefaultMs?: number | null,
+  globalOverride?: GlobalTimeoutOverride,
+): number {
+  if (typeof perCallMs === "number" && !isNaN(perCallMs)) {
+    return perCallMs;
+  }
+  if (globalOverride !== undefined && globalOverride !== null) {
+    return globalOverride;
+  }
+  if (typeof clientDefaultMs === "number" && !isNaN(clientDefaultMs)) {
+    return clientDefaultMs;
+  }
+  return DEFAULT_TIMEOUTS[operationType] ?? DEFAULT_OPERATION_TIMEOUT_MS;
+}
 
 /**
  * Get the timeout for a specific operation type.
