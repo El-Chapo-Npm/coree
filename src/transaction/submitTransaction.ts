@@ -9,6 +9,7 @@ import {
   toMessage,
 } from "../shared";
 import type { TransactionResult } from "./types";
+import { dispatchTransactionEvent } from "./webhooks";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
@@ -99,8 +100,17 @@ export async function submitTransaction(
     );
   }
 
+  let txHash: string | undefined;
+
   try {
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    try {
+      // Only needed to label webhook events on failure paths; never let hash
+      // computation itself fail a submission.
+      txHash = tx.hash().toString("hex");
+    } catch {
+      txHash = undefined;
+    }
 
     if (detectNetworkPassphraseMismatch(tx, networkPassphrase)) {
       return err(
@@ -126,8 +136,24 @@ export async function submitTransaction(
       cache.set(`tx:${response.hash}`, result, DEFAULT_TX_CACHE_TTL_MS);
     }
 
+    // Horizon's synchronous submit returns after ledger inclusion, so a
+    // success is both "submitted" and "confirmed". Fire-and-forget: webhook
+    // delivery never blocks or fails the submission result.
+    dispatchTransactionEvent("tx_submitted", result);
+    dispatchTransactionEvent("tx_confirmed", result);
+
     return ok(result);
   } catch (cause) {
+    if (txHash) {
+      // A Horizon timeout leaves the transaction outcome unknown (it may
+      // still make it into a ledger), so it is reported as pending timeout
+      // rather than failed.
+      const timedOut = isTimeoutError(cause);
+      dispatchTransactionEvent(timedOut ? "tx_timeout" : "tx_failed", {
+        hash: txHash,
+        status: timedOut ? "pending" : "failed",
+      });
+    }
     return err(
       SorokitErrorCode.TX_SUBMIT_FAILED,
       describeSubmissionFailure(cause),

@@ -200,19 +200,23 @@ export type {
   ValidateDestinationOptions,
 } from "./validateDestination";
 
-// ─── Webhook support (#208) ───────────────────────────────────────────────────
+// ─── Webhook support (#208, #395) ─────────────────────────────────────────────
 export {
   registerWebhook,
   unregisterWebhook,
   listWebhooks,
   clearWebhooks,
   triggerWebhooks,
+  dispatchTransactionEvent,
   verifySignature,
 } from "./webhooks";
 export type {
   WebhookEventType,
+  TransactionWebhookEvent,
+  LegacyWebhookEventType,
   WebhookRegistration,
   WebhookPayload,
+  WebhookEventDetails,
 } from "./webhooks";
 
 // ─── Asset pair trading logic (#209) ───────────────────────────────────────────

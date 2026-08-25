@@ -220,6 +220,25 @@ export type {
 } from "./transaction/transactionContext";
 export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+
+// ─── Webhook support (#395) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  dispatchTransactionEvent,
+  verifySignature,
+} from "./transaction/webhooks";
+export type {
+  WebhookEventType,
+  TransactionWebhookEvent,
+  LegacyWebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+  WebhookEventDetails,
+} from "./transaction/webhooks";
 export {
   exportTransactionHistory,
   queryTransactionHistory,
