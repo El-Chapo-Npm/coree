@@ -54,11 +54,21 @@ export interface AccountStreamConfig {
    */
   emitOnStart?: boolean;
   /**
+   * Optional callback fired when a new asset balance is added to the account.
+   * Receives the asset details (code, issuer), the new balance string, and the delta.
+   */
+  onBalanceAdd?: (asset: { code: string; issuer?: string }, newBalance: string, delta: string) => void;
+  /**
+   * Optional callback fired when an asset balance is removed from the account.
+   * Receives the asset details (code, issuer), the old balance string, and the delta.
+   */
+  onBalanceRemove?: (asset: { code: string; issuer?: string }, oldBalance: string, delta: string) => void;
+  /**
    * Optional callback fired when a specific asset balance changes between polls.
-   * Receives the asset code, the previous balance string, and the new balance string.
+   * Receives the asset details (code, issuer), the old balance string, the new balance string, and the delta.
    * Only fires when the balance actually changes — unchanged balances are silent.
    */
-  onBalanceChange?: (assetCode: string, oldBalance: string, newBalance: string) => void;
+  onBalanceChange?: (asset: { code: string; issuer?: string }, oldBalance: string, newBalance: string, delta: string) => void;
   /**
    * Optional balance alert rules evaluated on every successful poll.
    * Each rule fires an alert via {@link onAlert} when its threshold is crossed.
@@ -67,7 +77,7 @@ export interface AccountStreamConfig {
   alertRules?: BalanceAlertRule[];
   /**
    * Optional callback fired for each {@link BalanceAlert} produced by {@link alertRules}.
-   * Fired after `onBalanceChange` for the same poll.
+   * Fired after balance event callbacks for the same poll.
    */
   onAlert?: (alert: BalanceAlert) => void;
 }
@@ -217,15 +227,50 @@ export async function* streamAccount(
           poll: polls + 1,
         });
 
-        // Fire onBalanceChange for any balance that changed since the last successful poll.
-        if (lastEmitted && config?.onBalanceChange) {
-          for (const newBal of result.data.balances) {
-            const key = `${newBal.assetCode}:${newBal.assetIssuer ?? ""}`;
-            const oldBal = lastEmitted.balances.find(
-              (b) => `${b.assetCode}:${b.assetIssuer ?? ""}` === key,
-            );
-            if (oldBal && oldBal.balance !== newBal.balance) {
-              config.onBalanceChange(newBal.assetCode, oldBal.balance, newBal.balance);
+        // Fire balance event callbacks for add/remove/change events
+        if (lastEmitted) {
+          const oldBalancesMap = new Map(
+            lastEmitted.balances.map((b) => [`${b.assetCode}:${b.assetIssuer ?? ""}`, b])
+          );
+          const newBalancesMap = new Map(
+            result.data.balances.map((b) => [`${b.assetCode}:${b.assetIssuer ?? ""}`, b])
+          );
+
+          // Detect added balances
+          if (config?.onBalanceAdd) {
+            for (const [key, newBal] of newBalancesMap) {
+              if (!oldBalancesMap.has(key)) {
+                const asset: { code: string; issuer?: string } = { code: newBal.assetCode };
+                if (newBal.assetIssuer) asset.issuer = newBal.assetIssuer;
+                config.onBalanceAdd(asset, newBal.balance, newBal.balance);
+              }
+            }
+          }
+
+          // Detect removed balances
+          if (config?.onBalanceRemove) {
+            for (const [key, oldBal] of oldBalancesMap) {
+              if (!newBalancesMap.has(key)) {
+                const asset: { code: string; issuer?: string } = { code: oldBal.assetCode };
+                if (oldBal.assetIssuer) asset.issuer = oldBal.assetIssuer;
+                config.onBalanceRemove(asset, oldBal.balance, `-${oldBal.balance}`);
+              }
+            }
+          }
+
+          // Detect changed balances
+          if (config?.onBalanceChange) {
+            for (const [key, newBal] of newBalancesMap) {
+              const oldBal = oldBalancesMap.get(key);
+              if (oldBal && oldBal.balance !== newBal.balance) {
+                const asset: { code: string; issuer?: string } = { code: newBal.assetCode };
+                if (newBal.assetIssuer) asset.issuer = newBal.assetIssuer;
+                // Calculate delta as a string (new - old)
+                const oldNum = parseFloat(oldBal.balance);
+                const newNum = parseFloat(newBal.balance);
+                const delta = (newNum - oldNum).toString();
+                config.onBalanceChange(asset, oldBal.balance, newBal.balance, delta);
+              }
             }
           }
         }

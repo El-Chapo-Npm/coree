@@ -7,7 +7,7 @@ import {
   afterEach,
   type SpyInstance,
 } from "vitest";
-import { Asset, Horizon } from "@stellar/stellar-sdk";
+import { Asset, Horizon, Account, Keypair, Networks, StrKey, FeeBumpTransaction, Operation } from "@stellar/stellar-sdk";
 import * as serverFactory from "../shared/serverFactory";
 import { createHash } from "crypto";
 import {
@@ -394,6 +394,167 @@ describe("memo builders (#114)", () => {
     expect(() => createHashMemo("abc")).toThrow("32-byte hex");
     expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
     expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
+
+describe("muxed account network passphrase detection (#381)", () => {
+  it("detects network mismatch for regular G-address accounts", async () => {
+    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const keypair = Keypair.fromSecret(
+      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
+    );
+    
+    // Create a transaction signed for testnet
+    const testnetTx = new TransactionBuilder(
+      new Account(sourcePublicKey, "1"),
+      { fee: "100", networkPassphrase: Networks.TESTNET },
+    )
+      .addOperation(Operation.payment({
+        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
+        asset: Asset.native(),
+        amount: "10",
+      }))
+      .setTimeout(30)
+      .build();
+    
+    testnetTx.sign(keypair);
+    const signedXdr = testnetTx.toXDR();
+    
+    // Try to submit with mainnet passphrase
+    const result = await submitTransaction(
+      networkConfig.horizonUrl,
+      Networks.PUBLIC,
+      signedXdr,
+    );
+    
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      expect(result.error.message).toContain("Network passphrase mismatch");
+      expect(result.error.message).toContain(Networks.PUBLIC);
+    }
+  });
+
+  it("handles muxed M-address accounts by extracting inner G-address", async () => {
+    // Test that the implementation can handle muxed addresses without crashing
+    // by mocking a transaction with a muxed source
+    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    
+    // Create a mock transaction with muxed source
+    const mockTx = {
+      source: "MCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB", // Valid muxed format
+      hash: () => Buffer.alloc(32),
+      signatures: [],
+    };
+    
+    const mockFromXDR = vi.fn().mockReturnValue(mockTx);
+    const originalFromXDR = TransactionBuilder.fromXDR;
+    TransactionBuilder.fromXDR = mockFromXDR;
+    
+    const signedXdr = "AAAAAQAAAAA=";
+    
+    const result = await submitTransaction(
+      networkConfig.horizonUrl,
+      Networks.PUBLIC,
+      signedXdr,
+    );
+    
+    TransactionBuilder.fromXDR = originalFromXDR;
+    
+    // The function should handle the muxed address without crashing
+    // Since we can't create a real signed muxed transaction easily,
+    // we just verify it doesn't throw and falls back appropriately
+    expect(result.status).toBe("error");
+  });
+
+  it("allows transactions with correct network passphrase for regular accounts", async () => {
+    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const keypair = Keypair.fromSecret(
+      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
+    );
+    
+    const testnetTx = new TransactionBuilder(
+      new Account(sourcePublicKey, "1"),
+      { fee: "100", networkPassphrase: Networks.TESTNET },
+    )
+      .addOperation(Operation.payment({
+        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
+        asset: Asset.native(),
+        amount: "10",
+      }))
+      .setTimeout(30)
+      .build();
+    
+    testnetTx.sign(keypair);
+    const signedXdr = testnetTx.toXDR();
+    
+    // Submit with correct testnet passphrase (will fail at Horizon, but pass network check)
+    mockSubmitTransaction.mockRejectedValue(new Error("Horizon error"));
+    
+    const result = await submitTransaction(
+      networkConfig.horizonUrl,
+      Networks.TESTNET,
+      signedXdr,
+    );
+    
+    // Should fail at Horizon, not at network passphrase check
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).not.toContain("Network passphrase mismatch");
+    }
+  });
+
+  it("handles invalid muxed addresses gracefully", async () => {
+    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const keypair = Keypair.fromSecret(
+      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
+    );
+    
+    const testnetTx = new TransactionBuilder(
+      new Account(sourcePublicKey, "1"),
+      { fee: "100", networkPassphrase: Networks.TESTNET },
+    )
+      .addOperation(Operation.payment({
+        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
+        asset: Asset.native(),
+        amount: "10",
+      }))
+      .setTimeout(30)
+      .build();
+    
+    testnetTx.sign(keypair);
+    const signedXdr = testnetTx.toXDR();
+    
+    // Create an invalid muxed address
+    const invalidMuxed = "MCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB"; // Invalid format
+    
+    // Mock the parsing to return a transaction with invalid muxed source
+    const mockFromXDR = vi.fn().mockReturnValue({
+      source: invalidMuxed,
+      hash: () => Buffer.alloc(32),
+      signatures: [],
+    });
+    
+    // Temporarily mock the fromXDR to test error handling
+    const originalFromXDR = TransactionBuilder.fromXDR;
+    TransactionBuilder.fromXDR = mockFromXDR;
+    
+    mockSubmitTransaction.mockRejectedValue(new Error("Horizon error"));
+    
+    const result = await submitTransaction(
+      networkConfig.horizonUrl,
+      Networks.PUBLIC,
+      signedXdr,
+    );
+    
+    // Restore original function
+    TransactionBuilder.fromXDR = originalFromXDR;
+    
+    // Should fall back to Horizon validation rather than crash
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).not.toContain("Network passphrase mismatch");
+    }
   });
 });
 

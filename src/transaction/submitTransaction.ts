@@ -1,4 +1,4 @@
-import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction } from "@stellar/stellar-sdk";
+import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction, StrKey } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
@@ -12,6 +12,14 @@ import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+
+// Shared circuit breaker registry for Horizon operations
+const horizonCircuitBreaker = new CircuitBreakerRegistry({
+  requestWindow: 10,
+  failureRateThreshold: 0.5,
+  recoveryWindowMs: 30_000,
+});
 
 function describeSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -38,11 +46,21 @@ function detectNetworkPassphraseMismatch(
 ): boolean {
   const source = tx instanceof FeeBumpTransaction ? tx.feeSource : tx.source;
 
-  // Muxed accounts (M...) require extra decoding — skip and let Horizon validate.
-  if (!source || source.startsWith("M")) return false;
+  if (!source) return false;
+
+  // Extract the inner G-address from muxed accounts (M...)
+  let sourceAccountId = source;
+  if (source.startsWith("M")) {
+    try {
+      sourceAccountId = StrKey.decodeEd25519PublicKey(source);
+    } catch {
+      // If muxed account decoding fails, fall back to Horizon validation
+      return false;
+    }
+  }
 
   try {
-    const keypair = Keypair.fromPublicKey(source);
+    const keypair = Keypair.fromPublicKey(sourceAccountId);
     const expectedHash = tx.hash();
     const hint = keypair.rawPublicKey().slice(-4);
 
@@ -103,15 +121,21 @@ export async function submitTransaction(
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
 
     if (detectNetworkPassphraseMismatch(tx, networkPassphrase)) {
+      const isMuxed = (tx instanceof FeeBumpTransaction ? tx.feeSource : tx.source)?.startsWith("M");
+      const message = isMuxed
+        ? `Network passphrase mismatch: the muxed account transaction was signed for a different network. Expected: "${networkPassphrase}".`
+        : `Network passphrase mismatch: the transaction was signed for a different network. Expected: "${networkPassphrase}".`;
       return err(
         SorokitErrorCode.TX_SUBMIT_FAILED,
-        `Network passphrase mismatch: the transaction was signed for a different network. Expected: "${networkPassphrase}".`,
+        message,
       );
     }
 
-    const response = await retryWithBackoff(async () => {
-      const server = createHorizonServer(horizonUrl, options);
-      return await server.submitTransaction(tx);
+    const response = await horizonCircuitBreaker.call(horizonUrl, async () => {
+      return await retryWithBackoff(async () => {
+        const server = createHorizonServer(horizonUrl, options);
+        return await server.submitTransaction(tx);
+      });
     });
 
     const result: TransactionResult = {

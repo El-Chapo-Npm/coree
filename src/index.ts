@@ -63,6 +63,18 @@ export type {
   WalletStatusTrackerConfig,
 } from "./wallet/walletStatusTracker";
 
+// ─── Signing History ───────────────────────────────────────────────────────────
+export {
+  getSigningHistory,
+  exportSigningHistory,
+  InMemorySigningHistoryStore,
+} from "./wallet/signingHistory";
+export type {
+  SigningRecord,
+  SigningHistoryFilter,
+  SigningHistoryStore,
+} from "./wallet/signingHistory";
+
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";

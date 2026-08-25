@@ -21,6 +21,14 @@ import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+
+// Shared circuit breaker registry for RPC operations
+const rpcCircuitBreaker = new CircuitBreakerRegistry({
+  requestWindow: 10,
+  failureRateThreshold: 0.5,
+  recoveryWindowMs: 30_000,
+});
 
 function describePrepareFailure(cause: unknown): string {
   if (isTimeoutError(cause)) {
@@ -93,8 +101,10 @@ export async function prepareContractCall(
       .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
       .build();
 
-    const simResult = await retryWithBackoff(async () => {
-      return await rpc.simulateTransaction(tx);
+    const simResult = await rpcCircuitBreaker.call(rpcUrl, async () => {
+      return await retryWithBackoff(async () => {
+        return await rpc.simulateTransaction(tx);
+      });
     });
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {

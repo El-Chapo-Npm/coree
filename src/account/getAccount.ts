@@ -4,6 +4,15 @@ import type { SorokitResult } from "../shared/response";
 import { formatAddress, isNotFoundError, toMessage, retryWithBackoff, deduplicateRequest } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+
+// Shared circuit breaker registry for Horizon operations
+const horizonCircuitBreaker = new CircuitBreakerRegistry({
+  requestWindow: 10,
+  failureRateThreshold: 0.5,
+  recoveryWindowMs: 30_000,
+});
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 
 /**
  * Fetch full account details including all balances from Horizon.
@@ -33,10 +42,16 @@ export function getAccount(
   const cacheKey = `getAccount:${horizonUrl}:${publicKey}`;
   return deduplicateRequest(cacheKey, async () => {
     try {
-      const account = await retryWithBackoff(async () => {
-        const server = createHorizonServer(horizonUrl, options);
-        return await server.loadAccount(publicKey);
+      const account = await horizonCircuitBreaker.call(horizonUrl, async () => {
+        return await retryWithBackoff(async () => {
+          const server = createHorizonServer(horizonUrl, options);
+          return await server.loadAccount(publicKey);
+        });
       });
+
+      if (account.status === "error") {
+        return account;
+      }
 
       const balances: AssetBalance[] = account.balances.map((b) => {
         // Note: parseFloat is used here for convenience/backward compatibility.

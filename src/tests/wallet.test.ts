@@ -26,6 +26,7 @@ import {
   InMemorySigningHistoryStore,
   getSigningHistory,
   exportSigningHistory,
+  type SigningRecord,
 } from "../wallet/signingHistory";
 import { FreighterAdapter, XBullAdapter, LobstrAdapter } from "../wallet/adapters";
 import { WalletType } from "../wallet/types";
@@ -622,6 +623,158 @@ class SimpleCache implements SorokitCache {
     this.store.clear();
   }
 }
+
+describe("signing history export with filters (#387)", () => {
+  const sampleRecords: SigningRecord[] = [
+    {
+      txHash: "tx1",
+      signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      timestamp: "2026-01-15T10:00:00Z",
+      status: "success",
+    },
+    {
+      txHash: "tx2",
+      signer: "GBB7ZYSKSOTSOBBYRXVMQKPZDAXKL6DGRIVLCHYJRHYAQFA32WZIRB6",
+      timestamp: "2026-02-01T12:00:00Z",
+      status: "failure",
+      error: "insufficient balance",
+    },
+    {
+      txHash: "tx3",
+      signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      timestamp: "2026-03-01T14:30:00Z",
+      status: "success",
+    },
+  ];
+
+  it("exports all records to JSON format without filters", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(3);
+      expect(parsed[0].txHash).toBe("tx1");
+    }
+  });
+
+  it("exports all records to CSV format without filters", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "csv");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const lines = result.data.split("\n");
+      expect(lines[0]).toBe("txHash,signer,timestamp,status,error");
+      expect(lines.length).toBe(4); // header + 3 records
+    }
+  });
+
+  it("filters by signer", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json", { signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(2);
+      expect(parsed.every((r: SigningRecord) => r.signer === "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA")).toBe(true);
+    }
+  });
+
+  it("filters by status", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json", { status: "failure" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].status).toBe("failure");
+    }
+  });
+
+  it("filters by date range (from and to)", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json", {
+      from: "2026-01-20T00:00:00Z",
+      to: "2026-02-20T00:00:00Z",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].txHash).toBe("tx2");
+    }
+  });
+
+  it("combines multiple filters (signer and status)", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json", {
+      signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      status: "success",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(2);
+      expect(parsed.every((r: SigningRecord) => r.signer === "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" && r.status === "success")).toBe(true);
+    }
+  });
+
+  it("handles empty export results correctly", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json", { signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      expect(parsed).toHaveLength(0);
+    }
+  });
+
+  it("handles empty export results in CSV format", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "csv", { signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const lines = result.data.split("\n");
+      expect(lines[0]).toBe("txHash,signer,timestamp,status,error");
+      expect(lines.length).toBe(1); // header only
+    }
+  });
+
+  it("excludes private signing material from exports", () => {
+    const store = new InMemorySigningHistoryStore();
+    sampleRecords.forEach((r) => store.record(r));
+
+    const result = exportSigningHistory(store, "json");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const parsed = JSON.parse(result.data);
+      // Ensure only audit-friendly fields are present
+      expect(parsed[0]).toHaveProperty("txHash");
+      expect(parsed[0]).toHaveProperty("signer");
+      expect(parsed[0]).toHaveProperty("timestamp");
+      expect(parsed[0]).toHaveProperty("status");
+      // No private keys or signature bytes
+      expect(parsed[0]).not.toHaveProperty("signature");
+      expect(parsed[0]).not.toHaveProperty("privateKey");
+    }
+  });
+});
 
 describe("wallet connection persistence and recovery", () => {
   it("connectWallet() persists state to cache after success", async () => {
