@@ -138,6 +138,30 @@ export type {
 export { getAccount } from "./account/getAccount";
 export { getBalances } from "./account/getBalances";
 export { getAssetBalances } from "./account/getAssetBalances";
+export {
+  rotateAccountKey,
+  setAccountRecovery,
+  recoverAccountKeys,
+  isValidStellarPublicKey,
+} from "./account/keyRotation";
+export type {
+  RotateAccountKeyParams,
+  SetAccountRecoveryParams,
+  RecoverAccountKeysParams,
+  RecoveryReplacementSigner,
+} from "./account/keyRotation";
+export {
+  getAccountActivitySummary,
+  clearAccountActivitySummaryCache,
+  DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
+} from "./account/getAccountActivitySummary";
+export type {
+  ActivityPeriod,
+  AssetActivity,
+  CounterpartyActivity,
+  AccountActivitySummary,
+  GetAccountActivitySummaryOptions,
+} from "./account/getAccountActivitySummary";
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
@@ -203,19 +227,29 @@ export {
   findSwapPath,
   buildPathPaymentTransaction,
   describeRouterSwapFailure,
+  discoverPaymentPaths,
+  clearPathDiscoveryCache,
+  DEFAULT_PATH_DISCOVERY_CACHE_TTL_MS,
 } from "./transaction/pathPayment";
 export type {
   SwapRoute,
   SwapRouteAsset,
   FindSwapPathOptions,
   BuildPathPaymentParams,
+  DiscoveredPaymentPath,
+  PaymentPathDiscoveryResult,
+  DiscoverPaymentPathsOptions,
 } from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   buildPathPayment,
   checkTrustlines,
   buildBulkTrustlines,
+  validateTrustline,
+  getBulkTrustlines,
+  buildBulkTrustlineTransaction,
 } from "./transaction/index";
+export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
 export type {

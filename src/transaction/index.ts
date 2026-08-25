@@ -81,10 +81,13 @@ export {
   buildAccountMerge,
   checkTrustlines,
   buildBulkTrustlines,
+  validateTrustline,
+  getBulkTrustlines,
+  buildBulkTrustlineTransaction,
   clearSequenceCache,
   validateMemoPolicy,
 } from "./buildTransaction";
-export type { AccountMergeOptions } from "./buildTransaction";
+export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
@@ -151,6 +154,14 @@ export {
   findSwapPath,
   buildPathPaymentTransaction,
   describeRouterSwapFailure,
+  discoverPaymentPaths,
+  clearPathDiscoveryCache,
+  DEFAULT_PATH_DISCOVERY_CACHE_TTL_MS,
+} from "./pathPayment";
+export type {
+  DiscoveredPaymentPath,
+  PaymentPathDiscoveryResult,
+  DiscoverPaymentPathsOptions,
 } from "./pathPayment";
 export type {
   SwapRoute,
