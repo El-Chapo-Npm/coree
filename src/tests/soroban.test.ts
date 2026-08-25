@@ -2355,3 +2355,133 @@ describe("parseContractResult (#119)", () => {
     ).toThrow(TypeError);
   });
 });
+
+import { validateContractArgs } from "../soroban/contractMetadata";
+
+describe("validateContractArgs", () => {
+  const method = (inputs: ContractMethod["inputs"]): ContractMethod => ({
+    name: "transfer",
+    inputs,
+    returnType: null,
+  });
+
+  it("passes when all arg types match the ABI", () => {
+    const result = validateContractArgs(
+      method([
+        { name: "from", type: "address" },
+        { name: "amount", type: "u128" },
+      ]),
+      [
+        xdr.ScVal.scvAddress(
+          xdr.ScAddress.scAddressTypeAccount(
+            xdr.PublicKey.publicKeyTypeEd25519(Buffer.alloc(32)),
+          ),
+        ),
+        xdr.ScVal.scvU128(
+          new xdr.UInt128Parts({ hi: new xdr.Uint64("0"), lo: new xdr.Uint64("100") }),
+        ),
+      ],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("returns error when a string is passed where u128 is expected", () => {
+    const result = validateContractArgs(
+      method([{ name: "amount", type: "u128" }]),
+      [xdr.ScVal.scvString(Buffer.from("not-a-number", "utf8"))],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("amount");
+      expect(result.error.message).toContain("u128");
+      expect(result.error.message).toContain("string");
+    }
+  });
+
+  it("returns error with position and field name for mismatched second arg", () => {
+    const result = validateContractArgs(
+      method([
+        { name: "from", type: "address" },
+        { name: "amount", type: "u128" },
+      ]),
+      [
+        xdr.ScVal.scvAddress(
+          xdr.ScAddress.scAddressTypeAccount(
+            xdr.PublicKey.publicKeyTypeEd25519(Buffer.alloc(32)),
+          ),
+        ),
+        xdr.ScVal.scvBool(true),
+      ],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("amount");
+      expect(result.error.message).toContain("position 1");
+    }
+  });
+
+  it("passes with zero args when method has no inputs", () => {
+    const result = validateContractArgs(
+      method([]),
+      [],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+    expect(result.status).toBe("ok");
+  });
+
+  it("passes when args match a parameterized vec type", () => {
+    const result = validateContractArgs(
+      method([{ name: "ids", type: "vec<address>" }]),
+      [xdr.ScVal.scvVec([])],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+    expect(result.status).toBe("ok");
+  });
+
+  it("returns error including expected and actual type in message", () => {
+    const result = validateContractArgs(
+      method([{ name: "flag", type: "bool" }]),
+      [xdr.ScVal.scvU32(1)],
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("bool");
+      expect(result.error.message).toContain("u32");
+    }
+  });
+
+  it("is called in prepareContractCall and returns error before simulation", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "transfer",
+        args: [xdr.ScVal.scvString(Buffer.from("wrong", "utf8"))],
+        publicKey: Keypair.random().publicKey(),
+        cachedMetadata: [
+          { name: "transfer", inputs: [{ name: "amount", type: "u128" }], returnType: null },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("amount");
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+});

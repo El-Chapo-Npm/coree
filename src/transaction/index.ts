@@ -196,6 +196,7 @@ export function eurcAsset(issuer?: string): Asset {
 import { estimateFee } from "./estimateFee";
 import type { FeeEstimate, FeeEstimateInput } from "./estimateFee";
 import type { SorokitResult } from "../shared/response";
+import type { ResolvedNetworkConfig } from "../shared/types";
 
 export interface NetworkFeeResult {
   network: string;
@@ -224,7 +225,7 @@ export interface NetworkFeeResult {
  */
 export async function compareFeeAcrossNetworks(
   transaction: FeeEstimateInput,
-  networks: Array<{ network: string; horizonUrl: string; rpcUrl: string; networkPassphrase: string }>,
+  networks: ResolvedNetworkConfig[],
 ): Promise<NetworkFeeResult[]> {
   const results = await Promise.all(
     networks.map(async (networkConfig) => {

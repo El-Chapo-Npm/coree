@@ -367,6 +367,56 @@ export function validateContractMethodMetadata(
   return err(errorCode, result.error.message, result.error.cause);
 }
 
+// Maps ScVal type names (e.g. "scvU128") to the ABI type strings produced by specTypeToString()
+const SCV_TO_ABI_TYPE: Record<string, string> = {
+  scvBool: "bool",
+  scvU32: "u32",
+  scvI32: "i32",
+  scvU64: "u64",
+  scvI64: "i64",
+  scvU128: "u128",
+  scvI128: "i128",
+  scvString: "string",
+  scvSymbol: "symbol",
+  scvBytes: "bytes",
+  scvVoid: "void",
+  scvVec: "vec",
+  scvMap: "map",
+  scvAddress: "address",
+};
+
+/**
+ * Validates that each ScVal argument matches the expected type declared in the
+ * contract method's ABI inputs. Only validates args that have a matching input;
+ * count mismatch is already handled by validateContractMethodMetadata().
+ */
+export function validateContractArgs(
+  method: ContractMethod,
+  args: xdr.ScVal[],
+  errorCode: SorokitErrorCode,
+): SorokitResult<void> {
+  for (let i = 0; i < args.length; i++) {
+    const input = method.inputs[i];
+    const arg = args[i];
+    if (!input || !arg) continue;
+
+    const scvName: string = arg.switch().name;
+    const actualType = SCV_TO_ABI_TYPE[scvName] ?? scvName;
+    const expectedType = input.type;
+
+    // Allow vec/map/option/result/tuple as prefix matches (e.g. "vec<address>")
+    const expectedBase = expectedType.split("<")[0];
+    if (actualType !== expectedBase && actualType !== expectedType) {
+      return err(
+        errorCode,
+        `Argument "${input.name}" (position ${i}): expected type "${expectedType}", got "${actualType}"`,
+      );
+    }
+  }
+
+  return ok(undefined);
+}
+
 export const contractMetadataInternals = {
   parseContractMethodsFromWasm,
   readContractSpecSection,
