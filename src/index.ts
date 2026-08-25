@@ -487,16 +487,25 @@ export {
 } from "./shared/tracing";
 export type { TraceContext, TraceContextOptions } from "./shared/tracing";
 
-// ─── Metrics ──────────────────────────────────────────────────────────────────
+// ─── Metrics & performance profiling (#397) ───────────────────────────────────
 export {
   clearMetrics,
   getMetrics,
   metricsCollector,
   recordMetric,
   withMetrics,
+  configureProfiling,
+  isProfilingEnabled,
+  profileOperation,
+  getPerformanceMetrics,
+  exportPerformanceMetrics,
+  resetPerformanceMetrics,
+  DEFAULT_MAX_METRIC_ENTRIES,
 } from "./shared/metrics";
 export type {
   MetricEntry,
   MetricSummary,
   MetricsFilter,
+  ProfilingConfig,
+  PerformanceMetricsReport,
 } from "./shared/metrics";
