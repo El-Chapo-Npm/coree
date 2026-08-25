@@ -4,6 +4,7 @@ import { SorokitErrorCode } from "../shared/response";
 import type { AssetBalance } from "./types";
 import { getAccount } from "./getAccount";
 import { validateIssuer } from "../shared/validateIssuer";
+import { StrKey } from "@stellar/stellar-sdk";
 
 /**
  * Filter criteria for getAssetBalances().
@@ -62,6 +63,20 @@ export async function getAssetBalances(
   trustedIssuers?: string[] | null,
   options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<AssetBalance[]>> {
+  // Validate issuer format before making any API call
+  if (filter?.assetIssuer !== undefined && filter.assetIssuer !== null && filter.assetIssuer !== "") {
+    if (!StrKey.isValidEd25519PublicKey(filter.assetIssuer)) {
+      return {
+        status: "error",
+        data: null,
+        error: {
+          code: SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+          message: `Invalid asset issuer address format: "${filter.assetIssuer}"`,
+        },
+      };
+    }
+  }
+
   const result = await getAccount(horizonUrl, publicKey, options);
   if (result.status === "error") return result;
 

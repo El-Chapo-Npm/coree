@@ -435,8 +435,15 @@ export async function estimateFee(
       }
       xdr = input.transactionXdr;
     } else {
-      // Build a minimal sample payment transaction to simulate
+      // Validate amount is positive before building the transaction
       const { publicKey, destination, amount, assetCode, assetIssuer } = input;
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          "Amount must be positive",
+        );
+      }
       const horizonServer = createHorizonServer(horizonUrl);
       const sourceAccount = await horizonServer.loadAccount(publicKey);
 

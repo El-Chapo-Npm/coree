@@ -20,7 +20,17 @@ export interface ContractEventSubscriptionOptions {
   intervalMs?: number;
   fetch?: typeof fetch;
   limit?: number;
+  /** Maximum age (ms) before a seen-event entry is evicted. Default: 1 hour. */
+  deduplicationTtlMs?: number;
+  /** Maximum number of entries in the seen-event deduplication set. Default: 10000. */
+  deduplicationMaxSize?: number;
 }
+
+/** Default TTL for deduplication entries: 1 hour (3,600,000 ms). */
+export const DEFAULT_DEDUPLICATION_TTL_MS = 60 * 60 * 1000;
+
+/** Default maximum number of entries in the deduplication set. */
+export const DEFAULT_DEDUPLICATION_MAX_SIZE = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -64,6 +74,34 @@ function matchesTopicPattern(topic: string, pattern: string | RegExp): boolean {
   return topic === pattern;
 }
 
+/**
+ * Evict entries from the seen-event map that are older than `ttlMs` or that
+ * exceed `maxSize` (FIFO removal when cap is reached).
+ */
+function evictSeenEvents(
+  seen: Map<string, number>,
+  ttlMs: number,
+  maxSize: number,
+): void {
+  const now = Date.now();
+  for (const [id, ts] of seen) {
+    if (now - ts > ttlMs) {
+      seen.delete(id);
+    }
+  }
+  if (seen.size > maxSize) {
+    // FIFO: delete oldest entries first
+    const entries = [...seen.entries()].sort((a, b) => a[1] - b[1]);
+    const excess = seen.size - maxSize;
+    for (let i = 0; i < excess; i++) {
+      const entry = entries[i];
+      if (entry) {
+        seen.delete(entry[0]);
+      }
+    }
+  }
+}
+
 function matchesFilter(event: ContractEvent, filter?: ContractEventFilter): boolean {
   if (!filter) return true;
 
@@ -96,7 +134,9 @@ export function subscribeContractEvents(
 ): () => void {
   const intervalMs = options.intervalMs ?? 1500;
   const requestFetch = options.fetch ?? fetch;
-  const seenEventIds = new Set<string>();
+  const seenEventIds = new Map<string, number>();
+  const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
+  const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -129,10 +169,12 @@ export function subscribeContractEvents(
         })
         .filter((event) => matchesFilter(event, eventFilter));
 
+      evictSeenEvents(seenEventIds, deduplicationTtlMs, deduplicationMaxSize);
+
       const newEvents = events.filter((event) => {
         const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
         if (!id || seenEventIds.has(id)) return false;
-        seenEventIds.add(id);
+        seenEventIds.set(id, Date.now());
         return true;
       });
 
@@ -191,7 +233,9 @@ export async function* streamContractEvents(
 ): AsyncGenerator<ContractEvent[]> {
   const intervalMs = options.intervalMs ?? 1500;
   const requestFetch = options.fetch ?? fetch;
-  const seenEventIds = new Set<string>();
+  const seenEventIds = new Map<string, number>();
+  const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
+  const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
 
   while (!signal?.aborted) {
     try {
@@ -209,10 +253,12 @@ export async function* streamContractEvents(
           })
           .filter((event) => matchesFilter(event, filter));
 
+        evictSeenEvents(seenEventIds, deduplicationTtlMs, deduplicationMaxSize);
+
         const newEvents = events.filter((event) => {
           const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
           if (!id || seenEventIds.has(id)) return false;
-          seenEventIds.add(id);
+          seenEventIds.set(id, Date.now());
           return true;
         });
 
