@@ -19,6 +19,10 @@ function sameSnapshot(a: unknown, b: unknown): boolean {
   }
 }
 
+function getLatencyCompensatedDelay(intervalMs: number, requestDurationMs: number): number {
+  return Math.max(MIN_POLL_INTERVAL_MS, intervalMs - requestDurationMs);
+}
+
 /**
  * Configuration for account streaming.
  */
@@ -153,6 +157,7 @@ export async function* streamAccount(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
+  let nextDelayMs = currentIntervalMs;
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
 
@@ -201,7 +206,7 @@ export async function* streamAccount(
     // Skip the initial sleep when emitOnStart is true
     if (polls > 0 || !emitOnStart) {
       try {
-        await sleep(currentIntervalMs);
+        await sleep(nextDelayMs);
       } catch {
         return;
       }
@@ -209,6 +214,7 @@ export async function* streamAccount(
 
     if (signal?.aborted) return;
 
+    const pollStartedAt = Date.now();
     try {
       logger?.debug("account.stream.poll", {
         operation: "account.stream.poll",
@@ -322,6 +328,11 @@ export async function* streamAccount(
         errorMessage: message,
       });
       yield err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, message, cause);
+    } finally {
+      nextDelayMs = getLatencyCompensatedDelay(
+        currentIntervalMs,
+        Date.now() - pollStartedAt,
+      );
     }
 
     polls++;
