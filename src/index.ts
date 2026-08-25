@@ -232,6 +232,28 @@ export type {
 } from "./transaction/transactionContext";
 export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+
+// ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
+export { buildFeeBumpTransaction } from "./transaction/feeBumpTransaction";
+
+// ─── Webhook support (#395) ───────────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  dispatchTransactionEvent,
+  verifySignature,
+} from "./transaction/webhooks";
+export type {
+  WebhookEventType,
+  TransactionWebhookEvent,
+  LegacyWebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+  WebhookEventDetails,
+} from "./transaction/webhooks";
 export {
   exportTransactionHistory,
   queryTransactionHistory,
@@ -480,16 +502,25 @@ export {
 } from "./shared/tracing";
 export type { TraceContext, TraceContextOptions } from "./shared/tracing";
 
-// ─── Metrics ──────────────────────────────────────────────────────────────────
+// ─── Metrics & performance profiling (#397) ───────────────────────────────────
 export {
   clearMetrics,
   getMetrics,
   metricsCollector,
   recordMetric,
   withMetrics,
+  configureProfiling,
+  isProfilingEnabled,
+  profileOperation,
+  getPerformanceMetrics,
+  exportPerformanceMetrics,
+  resetPerformanceMetrics,
+  DEFAULT_MAX_METRIC_ENTRIES,
 } from "./shared/metrics";
 export type {
   MetricEntry,
   MetricSummary,
   MetricsFilter,
+  ProfilingConfig,
+  PerformanceMetricsReport,
 } from "./shared/metrics";

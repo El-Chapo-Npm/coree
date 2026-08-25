@@ -110,17 +110,18 @@ export async function getAccountActivitySummary(
         const assetIssuer = payOp.asset_issuer || null;
         const assetKey = `${assetCode}:${assetIssuer || "native"}`;
 
-        if (!assetMap.has(assetKey)) {
-          assetMap.set(assetKey, {
+        let entry = assetMap.get(assetKey);
+        if (!entry) {
+          entry = {
             code: assetCode,
             issuer: assetIssuer,
             amountIn: 0,
             amountOut: 0,
             count: 0,
-          });
+          };
+          assetMap.set(assetKey, entry);
         }
 
-        const entry = assetMap.get(assetKey)!;
         entry.count++;
 
         if (payOp.to === publicKey) {

@@ -72,8 +72,9 @@ export function normalizePairId(
   asset1: TokenAsset,
   asset2: TokenAsset,
 ): string {
-  const sorted = [asset1, asset2].sort((a, b) => a.code.localeCompare(b.code));
-  const first = sorted[0];
-  const second = sorted[1];
-  return `${first!.code}/${second!.code}`;
+  const [first, second]: [TokenAsset, TokenAsset] =
+    asset1.code.localeCompare(asset2.code) <= 0
+      ? [asset1, asset2]
+      : [asset2, asset1];
+  return `${first.code}/${second.code}`;
 }

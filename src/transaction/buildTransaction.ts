@@ -11,6 +11,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 import { validateIssuer } from "../shared/validateIssuer";
+import { profileOperation } from "../shared/metrics";
 
 import {
   isNetworkConnectivityError,
@@ -336,6 +337,24 @@ function validateMemoParams(
  * }
  */
 export async function buildPaymentTransaction(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: PaymentParams,
+  trustedIssuers?: string[] | null,
+): Promise<SorokitResult<string>> {
+  return profileOperation("transaction.buildPayment", () =>
+    buildPaymentTransactionInner(
+      horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      params,
+      trustedIssuers,
+    ),
+  );
+}
+
+async function buildPaymentTransactionInner(
   horizonUrl: string,
   networkConfig: ResolvedNetworkConfig,
   sourcePublicKey: string,

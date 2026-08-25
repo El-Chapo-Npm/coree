@@ -301,8 +301,9 @@ export class TokenBucketRateLimiter {
   private drain(bucket: BucketState, endpoint: string = "default"): void {
     this.refill(bucket);
     while (bucket.queue.length > 0 && bucket.tokens >= 1) {
+      const resolve = bucket.queue.shift();
+      if (resolve === undefined) break;
       bucket.tokens -= 1;
-      const resolve = bucket.queue.shift()!;
       // Approximate wait from queue entry time stored in rejectedRequests tracking
       resolve();
       this.onMetricEvent?.({
