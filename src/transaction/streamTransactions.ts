@@ -26,6 +26,10 @@ function sameSnapshot(a: unknown, b: unknown): boolean {
   }
 }
 
+function getLatencyCompensatedDelay(intervalMs: number, requestDurationMs: number): number {
+  return Math.max(MIN_POLL_INTERVAL_MS, intervalMs - requestDurationMs);
+}
+
 /**
  * Configuration for transaction streaming.
  */
@@ -249,6 +253,7 @@ export async function* streamTransactions(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
+  let nextDelayMs = currentIntervalMs;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -298,7 +303,7 @@ export async function* streamTransactions(
 
     if (polls > 0 || !emitOnStart) {
       try {
-        await sleep(currentIntervalMs);
+        await sleep(nextDelayMs);
       } catch {
         return;
       }
@@ -306,6 +311,7 @@ export async function* streamTransactions(
 
     if (signal?.aborted) return;
 
+    const pollStartedAt = Date.now();
     try {
       logger?.debug("transaction.stream.poll", {
         operation: "transaction.stream.poll",
@@ -382,6 +388,11 @@ export async function* streamTransactions(
 
       adjustInterval(false);
       yield err(code, message, cause);
+    } finally {
+      nextDelayMs = getLatencyCompensatedDelay(
+        currentIntervalMs,
+        Date.now() - pollStartedAt,
+      );
     }
 
     polls++;
