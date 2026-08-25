@@ -221,6 +221,9 @@ export type {
 export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
 
+// ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
+export { buildFeeBumpTransaction } from "./transaction/feeBumpTransaction";
+
 // ─── Webhook support (#395) ───────────────────────────────────────────────────
 export {
   registerWebhook,

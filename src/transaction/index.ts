@@ -219,6 +219,9 @@ export type {
   WebhookEventDetails,
 } from "./webhooks";
 
+// ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
+export { buildFeeBumpTransaction } from "./feeBumpTransaction";
+
 // ─── Asset pair trading logic (#209) ───────────────────────────────────────────
 export {
   createAssetPair,
