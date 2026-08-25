@@ -61,6 +61,7 @@ export enum SorokitErrorCode {
   // Network
   NETWORK_ERROR = "NETWORK_ERROR",
   INVALID_NETWORK = "INVALID_NETWORK",
+  SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
 
   /** Operation exceeded its configured execution window (#392) */
   OPERATION_TIMEOUT = "OPERATION_TIMEOUT",
