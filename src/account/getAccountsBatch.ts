@@ -15,20 +15,31 @@ export async function getAccountsBatch(
   options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>> {
   try {
+    if (!Array.isArray(publicKeys) || publicKeys.length === 0) {
+      return ok([]);
+    }
+
+    const uniqueKeys = Array.from(new Set(publicKeys));
     const settled = await Promise.allSettled(
-      publicKeys.map((publicKey) => getAccount(horizonUrl, publicKey, options)),
+      uniqueKeys.map((publicKey) => getAccount(horizonUrl, publicKey, options)),
     );
 
-    const results = settled.map((r): SorokitResult<AccountInfo> =>
-      r.status === "fulfilled"
-        ? r.value
-        : err(
-            SorokitErrorCode.ACCOUNT_FETCH_FAILED,
-            `Failed to fetch account: ${toMessage(r.reason)}`,
-            r.reason,
-          ),
-    );
+    const resultMap = new Map<string, SorokitResult<AccountInfo>>();
+    uniqueKeys.forEach((key, index) => {
+      const r = settled[index]!;
+      resultMap.set(
+        key,
+        r.status === "fulfilled"
+          ? r.value
+          : err(
+              SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+              `Failed to fetch account: ${toMessage(r.reason)}`,
+              r.reason,
+            ),
+      );
+    });
 
+    const results = publicKeys.map((key) => resultMap.get(key)!);
     return ok(results);
   } catch (cause) {
     return err(
