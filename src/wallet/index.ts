@@ -244,9 +244,10 @@ export function recommendWallets(
 ): DetectedWallet[] {
   const detected = detectInstalledWallets(adapters);
   const available = detected.filter((w) => w.available);
-  if (!criteria?.features?.length) return available;
+  const requiredFeatures = criteria?.features;
+  if (!requiredFeatures?.length) return available;
   return available.filter((w) =>
-    criteria.features!.every((f) => w.features.includes(f)),
+    requiredFeatures.every((f) => w.features.includes(f)),
   );
 }
 
