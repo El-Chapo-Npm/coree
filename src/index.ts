@@ -534,6 +534,10 @@ export type {
 export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
+export { simulateTransactionBatch } from "./soroban/simulateTransaction";
+export type { BatchSimulationResult } from "./soroban/simulateTransaction";
+export { getNftMetadata, clearNftMetadataCache } from "./soroban/nftMetadata";
+export type { NftMetadata, NftMetadataOptions } from "./soroban/nftMetadata";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
 export type {
@@ -643,3 +647,39 @@ export type {
   ProfilingConfig,
   PerformanceMetricsReport,
 } from "./shared/metrics";
+
+// ─── Governance voting utilities (#456) ───────────────────────────────────────
+export {
+  getVotingPower,
+  delegateVote,
+  castVote,
+  getVotingHistory,
+} from "./governance";
+export type {
+  VotingPowerParams,
+  VotingPowerResult,
+  DelegationParams,
+  DelegationResult,
+  CastVoteParams,
+  CastVoteResult,
+  VotingHistoryEntry,
+  GetVotingHistoryParams,
+} from "./governance";
+
+// ─── Transaction bundles (#457) ───────────────────────────────────────────────
+export {
+  createTransactionBundle,
+  resolveExecutionOrder,
+  areDependenciesMet,
+  findNextExecutableStep,
+  updateStepStatus,
+  recalculateBundleStatus,
+  recoverBundle,
+} from "./transaction/bundles";
+export type {
+  BundleStep,
+  BundleStepStatus,
+  BundleStatus,
+  TransactionBundle,
+  CreateBundleOptions,
+} from "./transaction/bundles";
