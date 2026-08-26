@@ -86,6 +86,14 @@ function setCachedMethods(
 }
 
 /**
+ * Clear the in-memory metadata cache.
+ */
+export function resetMetadataCache(): void {
+  memoryCache.clear();
+  inFlightRequests.clear();
+}
+
+/**
  * Manually invalidate cached metadata for a contract ID.
  * Clears both the in-memory cache and an optional external cache.
  */
@@ -458,10 +466,10 @@ export async function getContractMethods(
 
   const promise = (async () => {
     try {
-      const wasmResult = await fetchContractWasm(rpcUrl, contractId);
+      const wasmResult = await contractMetadataInternals.fetchContractWasm(rpcUrl, contractId);
       if (wasmResult.status === "error") return wasmResult;
 
-      const methods = parseContractMethodsFromWasm(wasmResult.data);
+      const methods = contractMetadataInternals.parseContractMethodsFromWasm(wasmResult.data);
       setCachedMethods(cacheKey, methods, options);
 
       return ok(methods);
