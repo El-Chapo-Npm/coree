@@ -1,3 +1,4 @@
+export { getWalletCapabilities, WALLET_CAPABILITY_IDS } from "./capabilities";
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { signTransaction } from "./signTransaction";
@@ -18,6 +19,14 @@ export type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 export {
   getSigningHistory,
@@ -45,6 +54,14 @@ import type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 import { WalletType } from "./types";
 

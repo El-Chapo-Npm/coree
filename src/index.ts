@@ -23,6 +23,8 @@ export {
   recommendWallets,
   removeSignatureFromEnvelope,
   signTransactionOffline,
+  getWalletCapabilities,
+  WALLET_CAPABILITY_IDS,
 } from "./wallet";
 export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
 export {
@@ -45,6 +47,10 @@ export type {
   WalletDiagnosticReport,
   WalletFeature,
   WalletState,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./wallet/types";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
