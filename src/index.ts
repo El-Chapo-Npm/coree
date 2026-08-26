@@ -25,6 +25,8 @@ export {
   createSigningChallenge,
   mergeSignatures,
   signTransactionOffline,
+  getWalletCapabilities,
+  WALLET_CAPABILITY_IDS,
 } from "./wallet";
 export type {
   CreateSigningChallengeOptions,
@@ -54,6 +56,10 @@ export type {
   WalletDiagnosticReport,
   WalletFeature,
   WalletState,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./wallet/types";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
