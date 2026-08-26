@@ -184,3 +184,55 @@ export async function simulateTransaction(
   }
 }
 
+/**
+ * Result for a single transaction in a batch simulation.
+ * Each result is tagged with the index it was submitted at.
+ */
+export interface BatchSimulationResult {
+  /** Index of this transaction in the input array */
+  index: number;
+  /** Simulation result — ok or error */
+  result: SorokitResult<SimulateTransactionResult>;
+}
+
+/**
+ * Simulate multiple transaction XDRs concurrently via Promise.allSettled.
+ *
+ * Independent simulations execute in parallel. Results remain mapped to their
+ * source transactions by index. Partial failures do not discard successful
+ * results — each outcome is isolated.
+ *
+ * @param rpcUrl          - Soroban RPC endpoint URL
+ * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2024")
+ * @param transactionXdrs - Array of transaction XDR strings to simulate
+ * @param options         - Optional cache and TTL settings
+ * @returns Array of results in the same order as inputs, each tagged with its index
+ */
+export async function simulateTransactionBatch(
+  rpcUrl: string,
+  networkPassphrase: string,
+  transactionXdrs: string[],
+  options?: SimulateTransactionOptions,
+): Promise<BatchSimulationResult[]> {
+  if (transactionXdrs.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    transactionXdrs.map((xdr) =>
+      simulateTransaction(rpcUrl, networkPassphrase, xdr, options),
+    ),
+  );
+
+  return settled.map((outcome, index) => {
+    if (outcome.status === "fulfilled") {
+      return { index, result: outcome.value };
+    }
+    return {
+      index,
+      result: err<SimulateTransactionResult>(
+        SorokitErrorCode.TX_SIMULATE_FAILED,
+        String(outcome.reason),
+        outcome.reason,
+      ),
+    };
+  });
+}

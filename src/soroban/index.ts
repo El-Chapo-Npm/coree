@@ -24,7 +24,8 @@ export {
 } from "./contractEncoding";
 export { parseContractResult } from "./parseContractResult";
 export { prepareContractCall } from "./prepareCall";
-export { simulateTransaction } from "./simulateTransaction";
+export { simulateTransaction, simulateTransactionBatch } from "./simulateTransaction";
+export type { BatchSimulationResult, SimulateTransactionOptions } from "./simulateTransaction";
 export { simulateContractSafe } from "./simulateContractSafe";
 export type {
   SimulateContractSafeOptions,
@@ -128,6 +129,8 @@ export {
   clearSnapshots,
 } from "./contractSnapshot";
 export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
+export { getNftMetadata, clearNftMetadataCache } from "./nftMetadata";
+export type { NftMetadata, NftMetadataOptions } from "./nftMetadata";
 export type { BuildContractDeployOptions } from "./deployContract";
 export type {
   ContractEvent,
