@@ -308,6 +308,9 @@ export const EURC_MAINNET_ISSUER =
 export const EURC_TESTNET_ISSUER =
   "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO";
 
+export { compose } from "./compose";
+export type { OperationStep, ComposedPipeline } from "./compose";
+
 export function nativeAsset(): Asset {
   return Asset.native();
 }

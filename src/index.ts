@@ -160,6 +160,14 @@ export type {
   AccountSubscriptionOptions,
 } from "./account";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
+export { linkAccountToDid, verifyDidOwnership } from "./account/didAssociation";
+export type {
+  DidAssociation,
+  DidDocument,
+  DidOwnershipVerification,
+  DidResolver,
+  OwnershipProof,
+} from "./account/didAssociation";
 export type {
   AccountInfo,
   AccountMetadata,
@@ -287,6 +295,8 @@ export {
 export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
+export { compose } from "./transaction/compose";
+export type { OperationStep, ComposedPipeline } from "./transaction/compose";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -522,6 +532,20 @@ export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
+export type {
+  IndexedContractEvent,
+  IndexedEventFilter,
+  IndexedEventPage,
+  IndexedEventQueryResult,
+} from "./soroban/eventIndex";
+export { analyzeCallOptimization } from "./soroban/callOptimization";
+export type {
+  CallOptimizationReport,
+  CallOptimizationSuggestion,
+  OptimizationPriority,
+  OptimizationSuggestionType,
+} from "./soroban/callOptimization";
 export type {
   ContractEvent,
   ContractEventFilter,
