@@ -152,6 +152,18 @@ export type {
   OptimizationPriority,
   OptimizationSuggestionType,
 } from "./callOptimization";
+export {
+  AssetMappingRegistry,
+  assetMappingRegistry,
+  unwrapAssetFromSoroban,
+  wrapAssetForSoroban,
+} from "./assetBridge";
+export type {
+  AssetBridgeAdapter,
+  AssetBridgeOperationOptions,
+  AssetIdentifier,
+  AssetMapping,
+} from "./assetBridge";
 export type {
   ContractMethod,
   ContractMethodInput,
