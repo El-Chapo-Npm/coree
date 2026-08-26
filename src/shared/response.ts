@@ -15,6 +15,12 @@ export type SorokitResult<T> =
   | { status: "ok"; data: T; error: null }
   | { status: "error"; data: null; error: SorokitError };
 
+export interface RecoveryAttempt {
+  endpoint: string;
+  error: string;
+  timestamp: number;
+}
+
 export interface SorokitError {
   code: SorokitErrorCode;
   message: string;
@@ -24,6 +30,14 @@ export interface SorokitError {
    * produced it. Set automatically by client methods when a trace ID is active.
    */
   traceId?: string;
+  /**
+   * Optional record of endpoint recovery attempts performed before returning this error.
+   */
+  recoveryAttempts?: RecoveryAttempt[];
+  /**
+   * Optional flag indicating that the operation completed or returned under degraded mode.
+   */
+  degradedMode?: boolean;
 }
 
 export enum SorokitErrorCode {
