@@ -253,6 +253,8 @@ export type {
   FeeEstimateOptions,
   FeeTiers,
   CongestionFeeEstimate,
+  TransactionPriority,
+  PriorityMultipliers,
 } from "./transaction/estimateFee";
 export {
   calculateFeeTiers,
@@ -265,6 +267,7 @@ export {
   ADAPTIVE_FEE_TTL_MAX_MS,
   ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
   FEE_HISTORY_MAX_ENTRIES,
+  DEFAULT_PRIORITY_MULTIPLIERS,
 } from "./transaction/estimateFee";
 export {
   findSwapPath,
