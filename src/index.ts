@@ -120,6 +120,12 @@ export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { createBalanceAlert } from "./account/createBalanceAlert";
 export type { BalanceAlertConfig } from "./account/createBalanceAlert";
 export { getAccountsBatch } from "./account/getAccountsBatch";
+export type {
+  AccountBatchEntry,
+  AccountBatchResult,
+  GetAccountsBatchOptions,
+  GetAccountsBatchWithMetadataOptions,
+} from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
@@ -128,6 +134,7 @@ export type { AccountStreamConfig } from "./account/streamAccount";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
 export type {
   AccountInfo,
+  AccountMetadata,
   AssetBalance,
   BalanceAlert,
   BalanceAlertCondition,
@@ -295,6 +302,8 @@ export {
   formatTransactionsToJson,
 } from "./transaction";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
@@ -378,8 +387,11 @@ export type {
   SimulateContractSafeOptions,
 } from "./soroban/simulateContractSafe";
 export {
+  decodeAbiValue,
   decodeContractValue,
+  encodeAbiValue,
   encodeContractArgs,
+  serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
 export type {
@@ -477,7 +489,9 @@ export type {
   BatchContractInvocation,
   BatchContractResult,
   ContractAbi,
+  ContractAbiField,
   ContractAbiMethod,
+  ContractAbiTypeDescriptor,
   ContractCallResult,
   ContractInvokeParams,
   ContractMethod,
@@ -487,6 +501,8 @@ export type {
   ParsedContractResult,
   PreparedContractCall,
   SimulateTransactionResult,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
   SorobanPollConfig,
 } from "./soroban/types";
 
