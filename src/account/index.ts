@@ -1,13 +1,45 @@
 export { getAccount } from "./getAccount";
 export { getAccountsBatch } from "./getAccountsBatch";
+export type {
+  AccountBatchEntry,
+  AccountBatchResult,
+  GetAccountsBatchOptions,
+  GetAccountsBatchWithMetadataOptions,
+} from "./getAccountsBatch";
 export { getBalances } from "./getBalances";
 export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
+export { subscribeToAccountEvents } from "./subscriptions";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
-export { setSponsor, removeSponsor } from "./sponsorship";
+export { createBalanceAlert } from "./createBalanceAlert";
+export {
+  rotateAccountKey,
+  setAccountRecovery,
+  recoverAccountKeys,
+  isValidStellarPublicKey,
+} from "./keyRotation";
+export {
+  getAccountActivitySummary,
+  clearAccountActivitySummaryCache,
+  DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
+} from "./getAccountActivitySummary";
+export type {
+  ActivityPeriod,
+  AssetActivity,
+  CounterpartyActivity,
+  AccountActivitySummary,
+  GetAccountActivitySummaryOptions,
+} from "./getAccountActivitySummary";
+export type {
+  RotateAccountKeyParams,
+  SetAccountRecoveryParams,
+  RecoverAccountKeysParams,
+  RecoveryReplacementSigner,
+} from "./keyRotation";
 export type {
   AccountInfo,
+  AccountMetadata,
   AssetBalance,
   BalanceAlert,
   BalanceAlertRule,
@@ -17,3 +49,12 @@ export type {
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";
 export type { AccountStreamConfig } from "./streamAccount";
+export type {
+  AccountEvent,
+  AccountEventTransport,
+  AccountEventType,
+  AccountSubscriptionOptions,
+  EventSubscription as AccountEventSubscription,
+} from "./subscriptions";
+export type { BalanceAlertConfig } from "./createBalanceAlert";
+

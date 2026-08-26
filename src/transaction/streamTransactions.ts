@@ -26,6 +26,10 @@ function sameSnapshot(a: unknown, b: unknown): boolean {
   }
 }
 
+function getLatencyCompensatedDelay(intervalMs: number, requestDurationMs: number): number {
+  return Math.max(MIN_POLL_INTERVAL_MS, intervalMs - requestDurationMs);
+}
+
 /**
  * Configuration for transaction streaming.
  */
@@ -212,10 +216,16 @@ export async function* streamTransactions(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<TransactionPage>> {
-  const baseIntervalMs = Math.max(
-    config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
-    MIN_POLL_INTERVAL_MS,
-  );
+  const requestedInterval = config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  if (requestedInterval < MIN_POLL_INTERVAL_MS) {
+    const msg = `intervalMs clamped from ${requestedInterval}ms to ${MIN_POLL_INTERVAL_MS}ms`;
+    if (logger) {
+      logger.warn(msg, { operation: "transaction.stream" });
+    } else {
+      console.warn(msg);
+    }
+  }
+  const baseIntervalMs = Math.max(requestedInterval, MIN_POLL_INTERVAL_MS);
   const adaptiveEnabled =
     config?.minIntervalMs !== undefined ||
     config?.maxIntervalMs !== undefined ||
@@ -243,6 +253,7 @@ export async function* streamTransactions(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
+  let nextDelayMs = currentIntervalMs;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -292,7 +303,7 @@ export async function* streamTransactions(
 
     if (polls > 0 || !emitOnStart) {
       try {
-        await sleep(currentIntervalMs);
+        await sleep(nextDelayMs);
       } catch {
         return;
       }
@@ -300,6 +311,7 @@ export async function* streamTransactions(
 
     if (signal?.aborted) return;
 
+    const pollStartedAt = Date.now();
     try {
       logger?.debug("transaction.stream.poll", {
         operation: "transaction.stream.poll",
@@ -351,7 +363,7 @@ export async function* streamTransactions(
       const hasBaseline = lastEmitted !== undefined;
       const changed = !hasBaseline || !sameSnapshot(lastEmitted, transactionPage);
       if (hasBaseline) adjustInterval(changed);
-      cursor = nextCursor ?? cursor;
+      if (nextCursor !== null) cursor = nextCursor;
 
       if (changed) {
         lastEmitted = transactionPage;
@@ -360,7 +372,7 @@ export async function* streamTransactions(
     } catch (cause) {
       const code = isNotFoundError(cause)
         ? SorokitErrorCode.ACCOUNT_NOT_FOUND
-        : SorokitErrorCode.TX_SUBMIT_FAILED;
+        : SorokitErrorCode.TX_FETCH_FAILED;
       const message = isNotFoundError(cause)
         ? `Account not found while streaming transactions: ${publicKey}`
         : `Transaction stream poll failed: ${toMessage(cause)}`;
@@ -376,6 +388,11 @@ export async function* streamTransactions(
 
       adjustInterval(false);
       yield err(code, message, cause);
+    } finally {
+      nextDelayMs = getLatencyCompensatedDelay(
+        currentIntervalMs,
+        Date.now() - pollStartedAt,
+      );
     }
 
     polls++;

@@ -1,10 +1,10 @@
+export { getWalletCapabilities, WALLET_CAPABILITY_IDS } from "./capabilities";
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
-export { FreighterAdapter } from "./adapters/freighter";
-export { XBullAdapter } from "./adapters/xbull";
-export { LobstrAdapter } from "./adapters/lobstr";
+export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
+export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
 export { WalletType } from "./types";
 export type {
   WalletState,
@@ -20,6 +20,14 @@ export type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 export {
   getSigningHistory,
@@ -31,6 +39,12 @@ export type {
   SigningHistoryFilter,
   SigningHistoryStore,
 } from "./signingHistory";
+export type {
+  CreateSigningChallengeOptions,
+  MergeSignaturesResult,
+  SigningChallenge,
+  SigningDelegationSignature,
+} from "./signingDelegation";
 
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -47,6 +61,14 @@ import type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 import { WalletType } from "./types";
 
@@ -246,9 +268,10 @@ export function recommendWallets(
 ): DetectedWallet[] {
   const detected = detectInstalledWallets(adapters);
   const available = detected.filter((w) => w.available);
-  if (!criteria?.features?.length) return available;
+  const requiredFeatures = criteria?.features;
+  if (!requiredFeatures?.length) return available;
   return available.filter((w) =>
-    criteria.features!.every((f) => w.features.includes(f)),
+    requiredFeatures.every((f) => w.features.includes(f)),
   );
 }
 

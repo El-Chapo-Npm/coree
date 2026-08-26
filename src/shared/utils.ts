@@ -142,6 +142,11 @@ export interface EndpointRateLimitConfig {
   defaultLimit?: number;
   /** Per-endpoint rate limits (requests per second) keyed by endpoint name */
   endpoints?: Record<string, number>;
+  /**
+   * Optional callback invoked on every rate-limit event (acquire, queue, drain).
+   * Use this for structured logging, Prometheus counters, or custom dashboards.
+   */
+  onMetricEvent?: (event: RateLimiterMetricEvent) => void;
 }
 
 /**
@@ -162,16 +167,62 @@ interface BucketState {
   refillRate: number; // tokens per ms
   queue: Array<() => void>;
   drainTimer: ReturnType<typeof setTimeout> | null;
+  // metrics
+  totalRequests: number;
+  rejectedRequests: number;
+  totalWaitMs: number;
+}
+
+/** Snapshot of metrics for a single rate-limit bucket. */
+export interface RateLimiterBucketMetrics {
+  /** Current token count (may be fractional between refills). */
+  currentTokens: number;
+  /** Total requests that called acquire() on this endpoint. */
+  totalRequests: number;
+  /** Requests that had to wait because the bucket was empty. */
+  queuedRequests: number;
+  /** Current queue depth (waiting requests). */
+  currentQueueDepth: number;
+  /** Cumulative wait time across all queued requests in ms. */
+  totalWaitMs: number;
+  /** Average wait time per queued request in ms (0 when none queued). */
+  averageWaitMs: number;
+}
+
+/** Aggregated metrics across all endpoints. */
+export interface RateLimiterMetrics {
+  /** Per-endpoint snapshots, keyed by endpoint name. */
+  endpoints: Record<string, RateLimiterBucketMetrics>;
+  /** Sum of totalRequests across all endpoints. */
+  totalRequests: number;
+  /** Sum of queuedRequests across all endpoints. */
+  totalQueuedRequests: number;
+}
+
+/** Event types emitted by the rate limiter metrics callback. */
+export type RateLimiterEventType = "acquired" | "queued" | "drained";
+
+/** Payload passed to the optional metrics callback. */
+export interface RateLimiterMetricEvent {
+  type: RateLimiterEventType;
+  endpoint: string;
+  /** Current token count after the event. */
+  tokens: number;
+  /** Current queue depth after the event. */
+  queueDepth: number;
+  /** Wait time in ms — only set for "drained" events. */
+  waitMs?: number;
 }
 
 /**
  * Token bucket rate limiter supporting per-endpoint quotas, runtime overrides,
- * and rate-limit header parsing (X-Rate-Limit-*).
+ * rate-limit header parsing (X-Rate-Limit-*), and metrics observability.
  */
 export class TokenBucketRateLimiter {
   private defaultLimit: number;
   private endpointLimits: Map<string, number>;
   private buckets: Map<string, BucketState>;
+  private onMetricEvent?: (event: RateLimiterMetricEvent) => void;
 
   constructor(limitOrConfig: number | EndpointRateLimitConfig = 10) {
     this.endpointLimits = new Map<string, number>();
@@ -188,6 +239,9 @@ export class TokenBucketRateLimiter {
         throw new Error("defaultLimit must be a positive number");
       }
       this.defaultLimit = defaultLimit;
+      if (limitOrConfig.onMetricEvent !== undefined) {
+        this.onMetricEvent = limitOrConfig.onMetricEvent;
+      }
 
       if (limitOrConfig.endpoints) {
         for (const [ep, limit] of Object.entries(limitOrConfig.endpoints)) {
@@ -217,6 +271,9 @@ export class TokenBucketRateLimiter {
         refillRate: limit / 1000,
         queue: [],
         drainTimer: null,
+        totalRequests: 0,
+        rejectedRequests: 0,
+        totalWaitMs: 0,
       };
       this.buckets.set(endpoint, bucket);
     }
@@ -241,29 +298,130 @@ export class TokenBucketRateLimiter {
     }, Math.max(0, msUntilToken));
   }
 
-  private drain(bucket: BucketState): void {
+  private drain(bucket: BucketState, endpoint: string = "default"): void {
     this.refill(bucket);
     while (bucket.queue.length > 0 && bucket.tokens >= 1) {
+      const resolve = bucket.queue.shift();
+      if (resolve === undefined) break;
       bucket.tokens -= 1;
-      bucket.queue.shift()!();
+      // Approximate wait from queue entry time stored in rejectedRequests tracking
+      resolve();
+      this.onMetricEvent?.({
+        type: "drained",
+        endpoint,
+        tokens: bucket.tokens,
+        queueDepth: bucket.queue.length,
+      });
     }
     if (bucket.queue.length > 0) this.scheduleDrain(bucket);
   }
 
   /**
    * Acquire a token for an optional endpoint, waiting if the bucket is empty.
+   * Increments totalRequests and, when queued, rejectedRequests + wait tracking.
    */
   async acquire(endpoint: string = "default"): Promise<void> {
     const bucket = this.getBucket(endpoint);
     this.refill(bucket);
+    bucket.totalRequests += 1;
+
     if (bucket.tokens >= 1) {
       bucket.tokens -= 1;
+      this.onMetricEvent?.({
+        type: "acquired",
+        endpoint,
+        tokens: bucket.tokens,
+        queueDepth: bucket.queue.length,
+      });
       return;
     }
+
+    bucket.rejectedRequests += 1;
+    const queuedAt = Date.now();
+
     return new Promise<void>((resolve) => {
-      bucket.queue.push(resolve);
+      bucket.queue.push(() => {
+        const waitMs = Date.now() - queuedAt;
+        bucket.totalWaitMs += waitMs;
+        this.onMetricEvent?.({
+          type: "queued",
+          endpoint,
+          tokens: bucket.tokens,
+          queueDepth: bucket.queue.length,
+          waitMs,
+        });
+        resolve();
+      });
       this.scheduleDrain(bucket);
     });
+  }
+
+  /**
+   * Snapshot metrics for a single endpoint (or "default").
+   * Returns undefined when the endpoint bucket has never been accessed.
+   */
+  getMetrics(endpoint: string = "default"): RateLimiterBucketMetrics | undefined {
+    const bucket = this.buckets.get(endpoint);
+    if (!bucket) return undefined;
+    this.refill(bucket);
+    return {
+      currentTokens: bucket.tokens,
+      totalRequests: bucket.totalRequests,
+      queuedRequests: bucket.rejectedRequests,
+      currentQueueDepth: bucket.queue.length,
+      totalWaitMs: bucket.totalWaitMs,
+      averageWaitMs:
+        bucket.rejectedRequests > 0
+          ? bucket.totalWaitMs / bucket.rejectedRequests
+          : 0,
+    };
+  }
+
+  /**
+   * Aggregated metrics snapshot across all tracked endpoints.
+   */
+  getAllMetrics(): RateLimiterMetrics {
+    const endpointMap: Record<string, RateLimiterBucketMetrics> = {};
+    let totalRequests = 0;
+    let totalQueuedRequests = 0;
+
+    for (const [ep, bucket] of this.buckets.entries()) {
+      this.refill(bucket);
+      const snapshot: RateLimiterBucketMetrics = {
+        currentTokens: bucket.tokens,
+        totalRequests: bucket.totalRequests,
+        queuedRequests: bucket.rejectedRequests,
+        currentQueueDepth: bucket.queue.length,
+        totalWaitMs: bucket.totalWaitMs,
+        averageWaitMs:
+          bucket.rejectedRequests > 0
+            ? bucket.totalWaitMs / bucket.rejectedRequests
+            : 0,
+      };
+      endpointMap[ep] = snapshot;
+      totalRequests += bucket.totalRequests;
+      totalQueuedRequests += bucket.rejectedRequests;
+    }
+
+    return { endpoints: endpointMap, totalRequests, totalQueuedRequests };
+  }
+
+  /**
+   * Reset metrics counters for a single endpoint (or all when omitted).
+   * Does not affect token state or queue.
+   */
+  resetMetrics(endpoint?: string): void {
+    const reset = (bucket: BucketState): void => {
+      bucket.totalRequests = 0;
+      bucket.rejectedRequests = 0;
+      bucket.totalWaitMs = 0;
+    };
+    if (endpoint !== undefined) {
+      const bucket = this.buckets.get(endpoint);
+      if (bucket) reset(bucket);
+    } else {
+      for (const bucket of this.buckets.values()) reset(bucket);
+    }
   }
 
   /**
@@ -370,4 +528,22 @@ export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promis
 
   _inflightRequests.set(key, promise);
   return promise;
+}
+
+/**
+ * Return the number of in-flight deduplicated requests currently active.
+ * Useful for diagnostics, testing, and observability dashboards.
+ *
+ * @example
+ * console.log("in-flight:", getInflightRequestCount());
+ */
+export function getInflightRequestCount(): number {
+  return _inflightRequests.size;
+}
+
+/**
+ * Clear all in-flight request records. Useful for test isolation.
+ */
+export function clearInflightRequests(): void {
+  _inflightRequests.clear();
 }

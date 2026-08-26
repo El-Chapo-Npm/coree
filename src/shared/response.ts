@@ -15,6 +15,12 @@ export type SorokitResult<T> =
   | { status: "ok"; data: T; error: null }
   | { status: "error"; data: null; error: SorokitError };
 
+export interface RecoveryAttempt {
+  endpoint: string;
+  error: string;
+  timestamp: number;
+}
+
 export interface SorokitError {
   code: SorokitErrorCode;
   message: string;
@@ -24,6 +30,14 @@ export interface SorokitError {
    * produced it. Set automatically by client methods when a trace ID is active.
    */
   traceId?: string;
+  /**
+   * Optional record of endpoint recovery attempts performed before returning this error.
+   */
+  recoveryAttempts?: RecoveryAttempt[];
+  /**
+   * Optional flag indicating that the operation completed or returned under degraded mode.
+   */
+  degradedMode?: boolean;
 }
 
 export enum SorokitErrorCode {
@@ -43,7 +57,14 @@ export enum SorokitErrorCode {
   TX_BUILD_FAILED = "TX_BUILD_FAILED",
   TX_SIMULATE_FAILED = "TX_SIMULATE_FAILED",
   TX_SUBMIT_FAILED = "TX_SUBMIT_FAILED",
+  TX_FETCH_FAILED = "TX_FETCH_FAILED",
   TX_NOT_FOUND = "TX_NOT_FOUND",
+  /** The cached sequence conflicts with the on-ledger sequence (#394) */
+  TX_SEQUENCE_CONFLICT = "TX_SEQUENCE_CONFLICT",
+  ROUTER_INVALID_PATH = "ROUTER_INVALID_PATH",
+  ROUTER_INSUFFICIENT_LIQUIDITY = "ROUTER_INSUFFICIENT_LIQUIDITY",
+  ROUTER_SLIPPAGE_EXCEEDED = "ROUTER_SLIPPAGE_EXCEEDED",
+  ROUTER_SWAP_FAILED = "ROUTER_SWAP_FAILED",
 
   // Soroban
   CONTRACT_INVOKE_FAILED = "CONTRACT_INVOKE_FAILED",
@@ -54,6 +75,10 @@ export enum SorokitErrorCode {
   // Network
   NETWORK_ERROR = "NETWORK_ERROR",
   INVALID_NETWORK = "INVALID_NETWORK",
+  SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
+
+  /** Operation exceeded its configured execution window (#392) */
+  OPERATION_TIMEOUT = "OPERATION_TIMEOUT",
 
   // Validation / Config
   INVALID_CONFIG = "INVALID_CONFIG",
@@ -65,7 +90,9 @@ export enum SorokitErrorCode {
 
 /** Construct a success result */
 export function ok<T>(data: T): SorokitResult<T> {
-  return { status: "ok", data, error: null };
+  // Freeze the wrapper so status/error cannot be silently mutated by consumers.
+  // data is left unfrozen — generic types may not be safely freezable.
+  return Object.freeze({ status: "ok", data, error: null }) as SorokitResult<T>;
 }
 
 /** Construct a failure result */
@@ -75,11 +102,13 @@ export function err<T>(
   cause?: unknown,
   traceId?: string,
 ): SorokitResult<T> {
-  return {
+  // Freeze the wrapper for the same reason as ok(). cause is intentionally
+  // excluded from freezing — it is an external value we do not own.
+  return Object.freeze({
     status: "error",
     data: null,
     error: traceId !== undefined ? { code, message, cause, traceId } : { code, message, cause },
-  };
+  }) as SorokitResult<T>;
 }
 
 /**

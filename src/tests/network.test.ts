@@ -64,16 +64,73 @@ describe("network/resolveNetwork", () => {
       expect(result.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
     }
   });
+
+  it("applies both horizonUrl and rpcUrl overrides simultaneously and preserves networkPassphrase", () => {
+    const result = resolveNetwork("testnet", {
+      horizonUrl: "https://h.example.com",
+      rpcUrl: "https://r.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.horizonUrl).toBe("https://h.example.com");
+      expect(result.data.rpcUrl).toBe("https://r.example.com");
+      expect(result.data.networkPassphrase).toContain("Test SDF");
+    }
+  });
+
+  it("networkPassphrase is never overridable via NetworkOverrides", () => {
+    const result = resolveNetwork("testnet", {
+      horizonUrl: "https://custom-horizon.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.networkPassphrase).toBe(
+        "Test SDF Network ; September 2015",
+      );
+    }
+  });
+
+  it("empty overrides object returns the base config unchanged", () => {
+    const result = resolveNetwork("testnet", {});
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.network).toBe("testnet");
+      expect(result.data.horizonUrl).toContain("testnet");
+      expect(result.data.networkPassphrase).toContain("Test SDF");
+    }
+  });
 });
 
 describe("network/getNetwork (delegates to resolveNetwork)", () => {
   it("returns testnet config", () => {
     const result = getNetwork("testnet");
     expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.network).toBe("testnet");
+      expect(result.data.horizonUrl).toContain("testnet");
+    }
+  });
+
+  it("returns mainnet config", () => {
+    const result = getNetwork("mainnet");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.network).toBe("mainnet");
+      expect(result.data.horizonUrl).toBe("https://horizon.stellar.org");
+    }
+  });
+
+  it("returns futurenet config", () => {
+    const result = getNetwork("futurenet");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.network).toBe("futurenet");
+      expect(result.data.horizonUrl).toContain("futurenet");
+    }
   });
 
   it("returns INVALID_NETWORK for unknown network", () => {
-    // @ts-expect-error
+    // @ts-expect-error — intentionally testing invalid input
     const result = getNetwork("badnet");
     expect(result.status).toBe("error");
     if (result.status === "error") {
@@ -83,13 +140,50 @@ describe("network/getNetwork (delegates to resolveNetwork)", () => {
 });
 
 describe("network/setNetwork (delegates to resolveNetwork)", () => {
-  it("applies overrides", () => {
+  it("applies horizonUrl only override", () => {
     const result = setNetwork("testnet", {
       horizonUrl: "https://custom.example.com",
     });
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       expect(result.data.horizonUrl).toBe("https://custom.example.com");
+      expect(result.data.rpcUrl).toContain("testnet");
+    }
+  });
+
+  it("applies rpcUrl only override", () => {
+    const result = setNetwork("mainnet", {
+      rpcUrl: "https://custom-rpc.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.rpcUrl).toBe("https://custom-rpc.example.com");
+      expect(result.data.horizonUrl).toBe("https://horizon.stellar.org");
+    }
+  });
+
+  it("applies combined horizonUrl and rpcUrl overrides", () => {
+    const result = setNetwork("testnet", {
+      horizonUrl: "https://custom-horizon.example.com",
+      rpcUrl: "https://custom-rpc.example.com",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.horizonUrl).toBe(
+        "https://custom-horizon.example.com",
+      );
+      expect(result.data.rpcUrl).toBe("https://custom-rpc.example.com");
+    }
+  });
+
+  it("returns INVALID_NETWORK for unknown network", () => {
+    // @ts-expect-error — intentionally testing invalid input
+    const result = setNetwork("badnet", {
+      horizonUrl: "https://custom.example.com",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
     }
   });
 });

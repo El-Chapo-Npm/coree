@@ -21,6 +21,31 @@ export interface WalletState {
   walletType: WalletType | null;
 }
 
+export type WalletCapabilityId =
+  | "account.read"
+  | "account.multi"
+  | "account.switch"
+  | "transaction.sign"
+  | "transaction.sign_multisig"
+  | "transaction.sign_soroban"
+  | "hardware.signing"
+  | "qr.signing"
+  | (string & {});
+
+export type WalletCapabilitySource = "adapter" | "fallback";
+
+export interface WalletCapability {
+  id: WalletCapabilityId;
+  supported: boolean;
+  source: WalletCapabilitySource;
+  description?: string;
+}
+
+export interface WalletCapabilities {
+  walletType: WalletType;
+  capabilities: WalletCapability[];
+  supports(capability: string): boolean;
+}
 export interface SignTransactionInput {
   /** XDR-encoded transaction to sign */
   transactionXdr: string;
@@ -39,7 +64,7 @@ export interface SignTransactionInput {
  * - Every method returns SorokitResult<T> — no throws, no raw returns
  * - isAvailable() is the only synchronous method — it cannot fail
  * - connect() returns the public key string on success
- * - disconnect() returns void on success
+ * - disconnect() returns undefined on success
  * - signTransaction() returns the signed XDR string on success
  *
  * Optional methods (multi-account support):
@@ -57,10 +82,16 @@ export interface WalletAdapter {
   connect(): Promise<SorokitResult<string>>;
 
   /** Disconnect — state cleanup is the consumer's responsibility */
-  disconnect(): Promise<SorokitResult<void>>;
+  disconnect(): Promise<SorokitResult<undefined>>;
 
   /** Sign a transaction XDR and return the signed XDR */
   signTransaction(input: SignTransactionInput): Promise<SorokitResult<string>>;
+
+  /**
+   * Optional: declare wallet capabilities without granting permission to skip
+   * the adapter's normal runtime validation.
+   */
+  getCapabilities?(): WalletCapabilities;
 
   /**
    * Optional: return all public keys currently accessible from the wallet.
