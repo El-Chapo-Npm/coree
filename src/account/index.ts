@@ -6,6 +6,14 @@ export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
 export { setSponsor, removeSponsor } from "./sponsorship";
+export { linkAccountToDid, verifyDidOwnership } from "./didAssociation";
+export type {
+  DidAssociation,
+  DidDocument,
+  DidOwnershipVerification,
+  DidResolver,
+  OwnershipProof,
+} from "./didAssociation";
 export type {
   AccountInfo,
   AssetBalance,

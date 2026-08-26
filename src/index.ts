@@ -75,6 +75,14 @@ export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBala
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
+export { linkAccountToDid, verifyDidOwnership } from "./account/didAssociation";
+export type {
+  DidAssociation,
+  DidDocument,
+  DidOwnershipVerification,
+  DidResolver,
+  OwnershipProof,
+} from "./account/didAssociation";
 export type {
   AccountInfo,
   AssetBalance,
@@ -140,6 +148,8 @@ export {
 } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
+export { compose } from "./transaction/compose";
+export type { OperationStep, ComposedPipeline } from "./transaction/compose";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -221,6 +231,20 @@ export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
+export type {
+  IndexedContractEvent,
+  IndexedEventFilter,
+  IndexedEventPage,
+  IndexedEventQueryResult,
+} from "./soroban/eventIndex";
+export { analyzeCallOptimization } from "./soroban/callOptimization";
+export type {
+  CallOptimizationReport,
+  CallOptimizationSuggestion,
+  OptimizationPriority,
+  OptimizationSuggestionType,
+} from "./soroban/callOptimization";
 export type {
   ContractEvent,
   ContractEventFilter,
