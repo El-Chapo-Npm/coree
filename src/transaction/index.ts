@@ -206,6 +206,8 @@ export type {
   TransactionHistoryResult,
 } from "./queryTransactionHistory";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
