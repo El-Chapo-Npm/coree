@@ -18,7 +18,7 @@ import { isValidContractId } from "../shared/utils";
 import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
-import { validateContractMethodMetadata } from "./contractMetadata";
+import { validateContractMethodMetadata, validateContractArgs } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
@@ -84,6 +84,18 @@ export async function prepareContractCall(
     SorokitErrorCode.CONTRACT_PREPARE_FAILED,
   );
   if (metadataResult.status === "error") return metadataResult;
+
+  if (params.cachedMetadata && params.args?.length) {
+    const methodMeta = params.cachedMetadata.find((m) => m.name === params.method);
+    if (methodMeta) {
+      const argsValidation = validateContractArgs(
+        methodMeta,
+        params.args,
+        SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      );
+      if (argsValidation.status === "error") return argsValidation;
+    }
+  }
 
   try {
     const rpc = createSorobanServer(rpcUrl);

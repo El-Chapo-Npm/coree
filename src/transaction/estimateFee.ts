@@ -154,6 +154,8 @@ export interface FeeEstimate {
    * transactions. Present only when `includeCongestionEstimate` is true.
    */
   congestion?: CongestionFeeEstimate;
+  /** The priority level applied to this estimate. Undefined when no priority was requested. */
+  priority?: TransactionPriority;
 }
 
 /**
@@ -174,6 +176,25 @@ export interface CongestionFeeEstimate {
   congestionLevel: "low" | "medium" | "high";
 }
 
+/** Transaction urgency level for priority-adjusted fee estimation. */
+export type TransactionPriority = "low" | "normal" | "high" | "urgent";
+
+/** Fee multipliers applied per priority level. */
+export interface PriorityMultipliers {
+  low: number;
+  normal: number;
+  high: number;
+  urgent: number;
+}
+
+/** Default multipliers: 0.5× low, 1× normal, 2× high, 5× urgent. */
+export const DEFAULT_PRIORITY_MULTIPLIERS: PriorityMultipliers = {
+  low: 0.5,
+  normal: 1,
+  high: 2,
+  urgent: 5,
+};
+
 /** Optional hooks and cache for fee estimation. */
 export interface FeeEstimateOptions {
   /** Client-level cache for storing the recent median fee */
@@ -187,6 +208,15 @@ export interface FeeEstimateOptions {
    * congestion-aware min/recommended/max fees (issue #193).
    */
   includeCongestionEstimate?: boolean;
+  /**
+   * Transaction urgency. Applies a multiplier to the base simulated fee.
+   * Defaults to "normal" (1× multiplier). The result is clamped to BASE_FEE.
+   */
+  priority?: TransactionPriority;
+  /**
+   * Override the default priority multipliers. Omit to use DEFAULT_PRIORITY_MULTIPLIERS.
+   */
+  priorityMultipliers?: PriorityMultipliers;
 }
 
 /** Number of recent transactions fetched to compute congestion-aware percentiles. */
@@ -508,6 +538,14 @@ export async function estimateFee(
       simulated = false;
     }
 
+    // Apply priority multiplier when requested, clamping to BASE_FEE floor.
+    const priority = options?.priority;
+    if (priority && priority !== "normal") {
+      const multipliers = options?.priorityMultipliers ?? DEFAULT_PRIORITY_MULTIPLIERS;
+      const multiplier = multipliers[priority];
+      feeStroops = Math.max(parseInt(BASE_FEE, 10), Math.round(feeStroops * multiplier));
+    }
+
     const feeXlm = (feeStroops / 10_000_000).toFixed(7);
     const feeEstimate: FeeEstimate = {
       fee: String(feeStroops),
@@ -515,6 +553,7 @@ export async function estimateFee(
       feeXlm,
       baseFee: BASE_FEE,
       simulated,
+      ...(priority ? { priority } : {}),
     };
 
     if (options?.includeTiers) {

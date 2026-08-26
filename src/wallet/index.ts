@@ -1,9 +1,11 @@
+export { getWalletCapabilities, WALLET_CAPABILITY_IDS } from "./capabilities";
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
 export { SigningRateLimiter } from "./signingRateLimiter";
 export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter";
+export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
 export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
 export { WalletType } from "./types";
 export type {
@@ -20,6 +22,10 @@ export type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 export {
   getSigningHistory,
@@ -31,6 +37,12 @@ export type {
   SigningHistoryFilter,
   SigningHistoryStore,
 } from "./signingHistory";
+export type {
+  CreateSigningChallengeOptions,
+  MergeSignaturesResult,
+  SigningChallenge,
+  SigningDelegationSignature,
+} from "./signingDelegation";
 
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -47,6 +59,10 @@ import type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./types";
 import { WalletType } from "./types";
 
