@@ -10,6 +10,7 @@ export { getBalances } from "./getBalances";
 export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
+export { subscribeToAccountEvents } from "./subscriptions";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
 export { createBalanceAlert } from "./createBalanceAlert";
 export {
@@ -48,5 +49,12 @@ export type {
 export type { AssetBalanceFilter } from "./getAssetBalances";
 export type { MultipleAssetBalancesResult } from "./getMultipleAssetBalances";
 export type { AccountStreamConfig } from "./streamAccount";
+export type {
+  AccountEvent,
+  AccountEventTransport,
+  AccountEventType,
+  AccountSubscriptionOptions,
+  EventSubscription as AccountEventSubscription,
+} from "./subscriptions";
 export type { BalanceAlertConfig } from "./createBalanceAlert";
 

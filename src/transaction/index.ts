@@ -93,6 +93,14 @@ export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
 export {
+  getAssetPrice,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  DEFAULT_PRICE_CACHE_TTL_MS,
+} from "./priceFeeds";
+export { subscribeToTransactionEvents } from "./subscriptions";
+export {
   exportTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
@@ -173,6 +181,21 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export type {
+  AssetPrice,
+  PriceFeed,
+  PriceFeedStatus,
+} from "../shared/types";
+export type {
+  GetAssetPriceOptions,
+} from "./priceFeeds";
+export type {
+  EventSubscription as TransactionEventSubscription,
+  TransactionEvent,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
+} from "./subscriptions";
 export {
   queryTransactionHistory,
 } from "./queryTransactionHistory";

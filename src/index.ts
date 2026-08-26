@@ -22,9 +22,18 @@ export {
   prioritizeWallet,
   recommendWallets,
   removeSignatureFromEnvelope,
+  createSigningChallenge,
+  mergeSignatures,
   signTransactionOffline,
 } from "./wallet";
-export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
+export type {
+  CreateSigningChallengeOptions,
+  EnvelopeSignatureInput,
+  MergeSignaturesResult,
+  SignatureHintInput,
+  SigningChallenge,
+  SigningDelegationSignature,
+} from "./wallet";
 export {
   FreighterAdapter,
   LobstrAdapter,
@@ -79,7 +88,12 @@ export type {
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
-export type { ResolvedNetworkConfig } from "./shared/types";
+export type {
+  AssetPrice as SharedAssetPrice,
+  PriceFeed as SharedPriceFeed,
+  PriceFeedStatus as SharedPriceFeedStatus,
+  ResolvedNetworkConfig,
+} from "./shared/types";
 export {
   checkNetworkHealth,
   NetworkSwitcher,
@@ -131,6 +145,14 @@ export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { subscribeToAccountEvents } from "./account/subscriptions";
+export type {
+  AccountEvent,
+  AccountEventSubscription,
+  AccountEventTransport,
+  AccountEventType,
+  AccountSubscriptionOptions,
+} from "./account";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
 export type {
   AccountInfo,
@@ -296,10 +318,16 @@ export type {
   WebhookEventDetails,
 } from "./transaction/webhooks";
 export {
+  DEFAULT_PRICE_CACHE_TTL_MS,
   exportTransactionHistory,
+  getAssetPrice,
   queryTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  subscribeToTransactionEvents,
 } from "./transaction";
 export type {
   CostBasisLot,
@@ -307,6 +335,14 @@ export type {
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
+  GetAssetPriceOptions,
+  PriceFeed,
+  PriceFeedStatus,
+  TransactionEvent,
+  TransactionEventSubscription,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
 } from "./transaction";
 export type {
   TransactionHistorySortField,
