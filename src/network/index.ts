@@ -1,5 +1,6 @@
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
+export * from "./fallback";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./circuitBreaker";
