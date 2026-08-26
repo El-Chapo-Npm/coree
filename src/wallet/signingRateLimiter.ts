@@ -73,9 +73,12 @@ export class SigningRateLimiter {
   ): boolean {
     const idx = this._queue.findIndex((item) => item.id === requestId);
     if (idx !== -1) {
-      const [item] = this._queue.splice(idx, 1);
-      item.resolve(err(SorokitErrorCode.WALLET_SIGN_REJECTED, reason));
-      return true;
+      const item = this._queue[idx];
+      if (item) {
+        this._queue.splice(idx, 1);
+        item.resolve(err(SorokitErrorCode.WALLET_SIGN_REJECTED, reason));
+        return true;
+      }
     }
     return false;
   }
