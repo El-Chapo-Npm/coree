@@ -2,6 +2,8 @@ export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
+export { SigningRateLimiter } from "./signingRateLimiter";
+export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter";
 export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
 export { WalletType } from "./types";
 export type {
