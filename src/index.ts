@@ -468,10 +468,12 @@ export type {
 // ─── Contract version detection & upgrade hook (#393) ─────────────────────────
 export {
   getContractVersion,
+  getContractVersionHistory,
   invalidateContractVersionCache,
   resetContractVersionTracking,
 } from "./soroban/contractVersion";
 export type {
+  ContractVersionHistoryEntry,
   ContractVersionInfo,
   ContractUpgradeEvent,
   OnContractUpgrade,
@@ -576,6 +578,48 @@ export type {
 } from "./soroban/types";
 
 // ─── Response system ──────────────────────────────────────────────────────────
+
+// ─── Transaction scheduler (#453) ────────────────────────────────────────────
+export {
+  scheduleTransaction,
+  cancelSchedule,
+  getSchedule,
+  listSchedules,
+  processDueSchedules,
+  InMemoryScheduleStore,
+} from "./transaction/scheduler";
+export type {
+  TransactionSchedule,
+  ScheduleStatus,
+  ScheduleStore,
+  SchedulerConfig,
+  ScheduleResult,
+} from "./transaction/scheduler";
+
+// ─── Anomaly detection (#454) ────────────────────────────────────────────────
+export {
+  detectAnomaly,
+  createAnomalyDetector,
+} from "./account/anomalyDetection";
+export type {
+  TransactionRecord,
+  AnomalyThresholds,
+  AnomalyResult,
+  AnomalyFlag,
+  AnomalyAlert,
+  AnomalyAlertCallback,
+} from "./account/anomalyDetection";
+
+// ─── Balance reconciliation (#459) ───────────────────────────────────────────
+export { reconcileBalances } from "./account/reconcileBalances";
+export type {
+  AccountBalance,
+  ExchangeRate,
+  ReconciliationResult,
+  AccountPosition,
+  Discrepancy,
+  ReconcileOptions,
+} from "./account/reconcileBalances";
 export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache, invalidateContractState } from "./shared/cache";
