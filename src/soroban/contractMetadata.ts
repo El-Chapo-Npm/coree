@@ -14,14 +14,25 @@ interface MetadataCacheEntry {
   expiresAt: number;
 }
 
-interface ContractMetadataOptions {
+export interface ContractMetadataOptions {
   cache?: SorokitCache;
   ttlMs?: number;
   now?: () => number;
+  capacity?: number;
 }
 
 const memoryCache = new Map<string, MetadataCacheEntry>();
-const MAX_MEMORY_CACHE_ENTRIES = 100;
+let defaultMaxMemoryCacheCapacity = 1000;
+const inFlightRequests = new Map<string, Promise<SorokitResult<ContractMethod[]>>>();
+
+/**
+ * Configure the maximum capacity for the in-memory LRU metadata cache.
+ */
+export function setMetadataCacheCapacity(capacity: number): void {
+  if (capacity > 0) {
+    defaultMaxMemoryCacheCapacity = capacity;
+  }
+}
 
 function metadataCacheKey(contractId: string): string {
   return `sorokit:contract-metadata:${contractId}`;
@@ -41,7 +52,12 @@ function getCachedMethods(
 
   const memoryValue = memoryCache.get(key);
   if (!memoryValue) return null;
-  if (memoryValue.expiresAt > now) return memoryValue.methods;
+  if (memoryValue.expiresAt > now) {
+    // Touch entry for LRU ordering
+    memoryCache.delete(key);
+    memoryCache.set(key, memoryValue);
+    return memoryValue.methods;
+  }
 
   memoryCache.delete(key);
   return null;
@@ -55,16 +71,26 @@ function setCachedMethods(
   const ttlMs = options?.ttlMs ?? DEFAULT_CONTRACT_METADATA_TTL_MS;
   const expiresAt = (options?.now?.() ?? Date.now()) + ttlMs;
   const entry: MetadataCacheEntry = { methods, expiresAt };
+  const capacity = options?.capacity ?? defaultMaxMemoryCacheCapacity;
 
   options?.cache?.set(key, entry, ttlMs);
 
-  // Enforce memory cache size limit
-  if (!memoryCache.has(key) && memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+  if (memoryCache.has(key)) {
+    memoryCache.delete(key);
+  } else if (memoryCache.size >= capacity) {
     const oldestKey = memoryCache.keys().next().value as string | undefined;
     if (oldestKey) memoryCache.delete(oldestKey);
   }
 
   memoryCache.set(key, entry);
+}
+
+/**
+ * Clear the in-memory metadata cache.
+ */
+export function resetMetadataCache(): void {
+  memoryCache.clear();
+  inFlightRequests.clear();
 }
 
 /**
@@ -434,21 +460,66 @@ export async function getContractMethods(
   const cached = getCachedMethods(cacheKey, options);
   if (cached) return ok(cached);
 
-  try {
-    const wasmResult = await fetchContractWasm(rpcUrl, contractId);
-    if (wasmResult.status === "error") return wasmResult;
-
-    const methods = parseContractMethodsFromWasm(wasmResult.data);
-    setCachedMethods(cacheKey, methods, options);
-
-    return ok(methods);
-  } catch (cause) {
-    return err(
-      SorokitErrorCode.CONTRACT_READ_FAILED,
-      `Failed to discover contract methods: ${toMessage(cause)}`,
-      cause,
-    );
+  if (inFlightRequests.has(cacheKey)) {
+    return inFlightRequests.get(cacheKey)!;
   }
+
+  const promise = (async () => {
+    try {
+      const wasmResult = await contractMetadataInternals.fetchContractWasm(rpcUrl, contractId);
+      if (wasmResult.status === "error") return wasmResult;
+
+      const methods = contractMetadataInternals.parseContractMethodsFromWasm(wasmResult.data);
+      setCachedMethods(cacheKey, methods, options);
+
+      return ok(methods);
+    } catch (cause) {
+      return err(
+        SorokitErrorCode.CONTRACT_READ_FAILED,
+        `Failed to discover contract methods: ${toMessage(cause)}`,
+        cause,
+      );
+    } finally {
+      inFlightRequests.delete(cacheKey);
+    }
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+  return promise;
+}
+
+/**
+ * Asynchronously fetch and cache contract metadata for multiple contracts concurrently.
+ *
+ * Avoids duplicate in-flight requests and handles individual failures without
+ * invalidating successful entries.
+ *
+ * @param rpcUrl      - Base URL of the Soroban RPC server.
+ * @param contractIds - Array of contract addresses to preload.
+ * @param options     - Optional cache, capacity, and TTL configuration.
+ */
+export async function preloadContractMetadata(
+  rpcUrl: string,
+  contractIds: string[],
+  options?: ContractMetadataOptions,
+): Promise<Record<string, SorokitResult<ContractMethod[]>>> {
+  const results: Record<string, SorokitResult<ContractMethod[]>> = {};
+
+  const promises = contractIds.map(async (contractId) => {
+    try {
+      const res = await getContractMethods(rpcUrl, contractId, options);
+      results[contractId] = res;
+    } catch (cause) {
+      results[contractId] = err(
+        SorokitErrorCode.CONTRACT_READ_FAILED,
+        `Preload failed for contract ${contractId}: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+  });
+
+  await Promise.allSettled(promises);
+  return results;
 }
 
 export function validateContractMethodMetadata(

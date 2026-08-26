@@ -37,11 +37,14 @@ export {
   getContractMethods,
   parseContractSchema,
   validateContractArgs,
+  preloadContractMetadata,
+  setMetadataCacheCapacity,
 } from "./contractMetadata";
 export type {
   ContractSchema,
   ContractMethodSchema,
   ContractMethodParam,
+  ContractMetadataOptions,
 } from "./contractMetadata";
 export {
   getContractVersion,
