@@ -1,4 +1,4 @@
-import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction } from "@stellar/stellar-sdk";
+import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction, StrKey } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
@@ -9,9 +9,18 @@ import {
   toMessage,
 } from "../shared";
 import type { TransactionResult } from "./types";
+import { dispatchTransactionEvent } from "./webhooks";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+
+// Shared circuit breaker registry for Horizon operations
+const horizonCircuitBreaker = new CircuitBreakerRegistry({
+  requestWindow: 10,
+  failureRateThreshold: 0.5,
+  recoveryWindowMs: 30_000,
+});
 
 function describeSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -38,11 +47,21 @@ function detectNetworkPassphraseMismatch(
 ): boolean {
   const source = tx instanceof FeeBumpTransaction ? tx.feeSource : tx.source;
 
-  // Muxed accounts (M...) require extra decoding — skip and let Horizon validate.
-  if (!source || source.startsWith("M")) return false;
+  if (!source) return false;
+
+  // Extract the inner G-address from muxed accounts (M...)
+  let sourceAccountId = source;
+  if (source.startsWith("M")) {
+    try {
+      sourceAccountId = StrKey.decodeEd25519PublicKey(source);
+    } catch {
+      // If muxed account decoding fails, fall back to Horizon validation
+      return false;
+    }
+  }
 
   try {
-    const keypair = Keypair.fromPublicKey(source);
+    const keypair = Keypair.fromPublicKey(sourceAccountId);
     const expectedHash = tx.hash();
     const hint = keypair.rawPublicKey().slice(-4);
 
@@ -89,6 +108,7 @@ export async function submitTransaction(
   networkPassphrase: string,
   signedXdr: string,
   cache?: SorokitCache,
+  options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
   if (isXdrInvalidError(signedXdr)) {
     return err(
@@ -98,19 +118,34 @@ export async function submitTransaction(
     );
   }
 
+  let txHash: string | undefined;
+
   try {
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    try {
+      // Only needed to label webhook events on failure paths; never let hash
+      // computation itself fail a submission.
+      txHash = tx.hash().toString("hex");
+    } catch {
+      txHash = undefined;
+    }
 
     if (detectNetworkPassphraseMismatch(tx, networkPassphrase)) {
+      const isMuxed = (tx instanceof FeeBumpTransaction ? tx.feeSource : tx.source)?.startsWith("M");
+      const message = isMuxed
+        ? `Network passphrase mismatch: the muxed account transaction was signed for a different network. Expected: "${networkPassphrase}".`
+        : `Network passphrase mismatch: the transaction was signed for a different network. Expected: "${networkPassphrase}".`;
       return err(
         SorokitErrorCode.TX_SUBMIT_FAILED,
-        `Network passphrase mismatch: the transaction was signed for a different network. Expected: "${networkPassphrase}".`,
+        message,
       );
     }
 
-    const response = await retryWithBackoff(async () => {
-      const server = createHorizonServer(horizonUrl);
-      return await server.submitTransaction(tx);
+    const response = await horizonCircuitBreaker.call(horizonUrl, async () => {
+      return await retryWithBackoff(async () => {
+        const server = createHorizonServer(horizonUrl, options);
+        return await server.submitTransaction(tx);
+      });
     });
 
     const result: TransactionResult = {
@@ -125,8 +160,24 @@ export async function submitTransaction(
       cache.set(`tx:${response.hash}`, result, DEFAULT_TX_CACHE_TTL_MS);
     }
 
+    // Horizon's synchronous submit returns after ledger inclusion, so a
+    // success is both "submitted" and "confirmed". Fire-and-forget: webhook
+    // delivery never blocks or fails the submission result.
+    dispatchTransactionEvent("tx_submitted", result);
+    dispatchTransactionEvent("tx_confirmed", result);
+
     return ok(result);
   } catch (cause) {
+    if (txHash) {
+      // A Horizon timeout leaves the transaction outcome unknown (it may
+      // still make it into a ledger), so it is reported as pending timeout
+      // rather than failed.
+      const timedOut = isTimeoutError(cause);
+      dispatchTransactionEvent(timedOut ? "tx_timeout" : "tx_failed", {
+        hash: txHash,
+        status: timedOut ? "pending" : "failed",
+      });
+    }
     return err(
       SorokitErrorCode.TX_SUBMIT_FAILED,
       describeSubmissionFailure(cause),

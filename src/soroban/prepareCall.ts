@@ -14,12 +14,21 @@ import {
   retryWithBackoff,
   toMessage,
 } from "../shared";
+import { isValidContractId } from "../shared/utils";
 import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
-import { validateContractMethodMetadata } from "./contractMetadata";
+import { validateContractMethodMetadata, validateContractArgs } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+
+// Shared circuit breaker registry for RPC operations
+const rpcCircuitBreaker = new CircuitBreakerRegistry({
+  requestWindow: 10,
+  failureRateThreshold: 0.5,
+  recoveryWindowMs: 30_000,
+});
 
 function describePrepareFailure(cause: unknown): string {
   if (isTimeoutError(cause)) {
@@ -47,6 +56,20 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  if (!isValidContractId(params.contractId)) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Invalid contract ID: '${params.contractId}'. Expected a C-prefixed 56-character Stellar base32 string.`,
+    );
+  }
+
+  if (!params.method || params.method.trim().length === 0) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      "Contract method name must not be empty.",
+    );
+  }
+
   const abiValidation = validateContractAbi({
     contractAbi: params.contractAbi,
     method: params.method,
@@ -61,6 +84,18 @@ export async function prepareContractCall(
     SorokitErrorCode.CONTRACT_PREPARE_FAILED,
   );
   if (metadataResult.status === "error") return metadataResult;
+
+  if (params.cachedMetadata && params.args?.length) {
+    const methodMeta = params.cachedMetadata.find((m) => m.name === params.method);
+    if (methodMeta) {
+      const argsValidation = validateContractArgs(
+        methodMeta,
+        params.args,
+        SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      );
+      if (argsValidation.status === "error") return argsValidation;
+    }
+  }
 
   try {
     const rpc = createSorobanServer(rpcUrl);
@@ -78,8 +113,10 @@ export async function prepareContractCall(
       .setTimeout(DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS)
       .build();
 
-    const simResult = await retryWithBackoff(async () => {
-      return await rpc.simulateTransaction(tx);
+    const simResult = await rpcCircuitBreaker.call(rpcUrl, async () => {
+      return await retryWithBackoff(async () => {
+        return await rpc.simulateTransaction(tx);
+      });
     });
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {

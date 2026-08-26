@@ -7,6 +7,12 @@ export type TransactionStatus = "pending" | "success" | "failed" | "not_found";
 export interface TransactionResult {
   hash: string;
   status: TransactionStatus;
+  /**
+   * Ledger sequence number the transaction was included in.
+   * `undefined` when `status` is `"pending"` — Horizon reports `ledger_attr`
+   * as `0` (or omits it) for transactions that have been submitted but not
+   * yet confirmed in a ledger, so that value is never surfaced here.
+   */
   ledger?: number;
   createdAt?: string;
   fee?: string;
@@ -17,6 +23,20 @@ export interface TransactionResult {
 }
 
 export type MemoType = "text" | "id" | "hash" | "return";
+
+export type MemoValidationRule = "required" | "prohibit" | "require_format";
+
+export interface MemoValidationConfig {
+  /** The memo enforcement policy rule: "required", "prohibit", or "require_format". */
+  rule: MemoValidationRule;
+  /**
+   * Expected format pattern when rule is "require_format".
+   * Can be a RegExp pattern, a regex string, or a custom predicate function `(memo: string) => boolean`.
+   */
+  format?: RegExp | string | ((memo: string) => boolean);
+  /** Optional custom error message to return on validation failure */
+  errorMessage?: string;
+}
 
 export interface MemoParams {
   /** Optional memo value. If omitted, no memo is attached. */
@@ -31,6 +51,11 @@ export interface MemoParams {
    * A returned error result surfaces as TX_BUILD_FAILED and aborts the build.
    */
   memoValidator?: (memo: string) => import("../shared/response").SorokitResult<void>;
+  /**
+   * Optional memo enforcement policy configuration.
+   * Supports "required", "prohibit", and "require_format" with custom format patterns.
+   */
+  memoValidation?: MemoValidationConfig | MemoValidationRule;
 }
 
 export interface PaymentParams extends MemoParams {
@@ -224,6 +249,8 @@ export interface MultiSigEnvelope {
 
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,

@@ -14,7 +14,8 @@ import {
   DEFAULT_POLL_INTERVAL_MS,
 } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import type { SorobanPollConfig } from "./types";
+import type { ContractStateTracker, SorobanPollConfig } from "./types";
+import { extractContractCallIdentity } from "./contractCallIdentity";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
 function describeContractSubmissionFailure(cause: unknown): string {
@@ -41,6 +42,44 @@ function describeContractPollingFailure(cause: unknown): string {
 }
 
 /**
+ * Validate Soroban polling configuration (#285).
+ * Ensures maxAttempts is a positive integer and intervalMs is a positive number.
+ */
+export function validateSorobanPollConfig(
+  pollConfig?: SorobanPollConfig,
+): SorokitResult<never> | undefined {
+  if (!pollConfig) return undefined;
+
+  if (
+    pollConfig.maxAttempts !== undefined &&
+    (typeof pollConfig.maxAttempts !== "number" ||
+      isNaN(pollConfig.maxAttempts) ||
+      pollConfig.maxAttempts <= 0 ||
+      !Number.isInteger(pollConfig.maxAttempts))
+  ) {
+    return err(
+      SorokitErrorCode.CONTRACT_INVOKE_FAILED,
+      "sorobanPoll.maxAttempts must be a positive integer.",
+    );
+  }
+
+  if (
+    pollConfig.intervalMs !== undefined &&
+    (typeof pollConfig.intervalMs !== "number" ||
+      isNaN(pollConfig.intervalMs) ||
+      pollConfig.intervalMs < 0 ||
+      !Number.isFinite(pollConfig.intervalMs))
+  ) {
+    return err(
+      SorokitErrorCode.CONTRACT_INVOKE_FAILED,
+      "sorobanPoll.intervalMs must be a non-negative number.",
+    );
+  }
+
+  return undefined;
+}
+
+/**
  * Execute step of the Soroban invoke flow: submit → poll for confirmation.
  *
  * This is step 3 of the pipeline (after prepare and sign).
@@ -57,11 +96,15 @@ export async function executeContract(
   signedXdr: string,
   pollConfig?: SorobanPollConfig,
   logger?: SorokitLogger,
+  stateTracker?: ContractStateTracker,
 ): Promise<SorokitResult<string>> {
   logger?.debug("soroban.execute", {
     operation: "soroban.execute",
     status: "start",
   });
+
+  const pollErr = validateSorobanPollConfig(pollConfig);
+  if (pollErr) return pollErr;
 
   if (isXdrInvalidError(signedXdr)) {
     return err(
@@ -73,8 +116,8 @@ export async function executeContract(
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   let hash: string;
+  const rpc = createSorobanServer(rpcUrl);
   try {
-    const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(
       signedXdr,
       networkConfig.networkPassphrase,
@@ -126,8 +169,6 @@ export async function executeContract(
   });
 
   try {
-    const rpc = createSorobanServer(rpcUrl);
-
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(intervalMs);
       logger?.debug("soroban.execute.poll.attempt", {
@@ -141,6 +182,13 @@ export async function executeContract(
       const statusResult = await rpc.getTransaction(hash);
 
       if (statusResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+        const identity = extractContractCallIdentity(
+          signedXdr,
+          networkConfig.networkPassphrase,
+        );
+        if (identity && stateTracker) {
+          await stateTracker.markContractModified(identity.contractId);
+        }
         logger?.info("soroban.execute.poll", {
           operation: "soroban.execute.poll",
           status: "ok",

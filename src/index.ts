@@ -10,6 +10,7 @@ export { createSorokitClient } from "./client/createSorokitClient";
 export type {
   SorokitClient,
   SorokitClientConfig,
+  HealthCheckReport,
 } from "./client/createSorokitClient";
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
@@ -21,12 +22,25 @@ export {
   prioritizeWallet,
   recommendWallets,
   removeSignatureFromEnvelope,
+  createSigningChallenge,
+  mergeSignatures,
   signTransactionOffline,
+  getWalletCapabilities,
+  WALLET_CAPABILITY_IDS,
 } from "./wallet";
-export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
-export { FreighterAdapter } from "./wallet/adapters/freighter";
-export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { XBullAdapter } from "./wallet/adapters/xbull";
+export type {
+  CreateSigningChallengeOptions,
+  EnvelopeSignatureInput,
+  MergeSignaturesResult,
+  SignatureHintInput,
+  SigningChallenge,
+  SigningDelegationSignature,
+} from "./wallet";
+export {
+  FreighterAdapter,
+  LobstrAdapter,
+  XBullAdapter,
+} from "./wallet/adapters";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export { WalletType } from "./wallet/types";
@@ -42,15 +56,57 @@ export type {
   WalletDiagnosticReport,
   WalletFeature,
   WalletState,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./wallet/types";
 
+// ─── Wallet Status Tracker ─────────────────────────────────────────────────────
+export {
+  WalletStatusTracker,
+  getAdapterName,
+  truncatePublicKey,
+  getAriaLabel,
+  getStatusColorClass,
+} from "./wallet/walletStatusTracker";
+export type {
+  WalletConnectionStatus,
+  WalletStatus,
+  WalletStatusListener,
+  WalletStatusUnsubscribe,
+  WalletStatusTrackerConfig,
+} from "./wallet/walletStatusTracker";
+
+// ─── Signing History ───────────────────────────────────────────────────────────
+export {
+  getSigningHistory,
+  exportSigningHistory,
+  InMemorySigningHistoryStore,
+} from "./wallet/signingHistory";
+export type {
+  SigningRecord,
+  SigningHistoryFilter,
+  SigningHistoryStore,
+} from "./wallet/signingHistory";
+
 // ─── Network ──────────────────────────────────────────────────────────────────
-export { NETWORK_DEFAULTS } from "./network/config";
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
-export type { ResolvedNetworkConfig } from "./shared/types";
-export { checkNetworkHealth, NetworkSwitcher } from "./network";
+export type {
+  AssetPrice as SharedAssetPrice,
+  PriceFeed as SharedPriceFeed,
+  PriceFeedStatus as SharedPriceFeedStatus,
+  ResolvedNetworkConfig,
+} from "./shared/types";
+export {
+  checkNetworkHealth,
+  NetworkSwitcher,
+  getNetwork,
+  setNetwork,
+  NETWORK_DEFAULTS,
+} from "./network";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -66,14 +122,43 @@ export type {
   NetworkSwitcherConfig,
 } from "./network";
 
+// ─── Circuit breaker (#186) ────────────────────────────────────────────────────
+export {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+  CircuitOpenError,
+} from "./network";
+export type {
+  CircuitBreakerConfig,
+  CircuitBreakerMetrics,
+  CircuitState,
+  CircuitStateChangeEvent,
+} from "./network";
+
 // ─── Account types & utilities ────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export { createBalanceAlert } from "./account/createBalanceAlert";
+export type { BalanceAlertConfig } from "./account/createBalanceAlert";
 export { getAccountsBatch } from "./account/getAccountsBatch";
+export type {
+  AccountBatchEntry,
+  AccountBatchResult,
+  GetAccountsBatchOptions,
+  GetAccountsBatchWithMetadataOptions,
+} from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { subscribeToAccountEvents } from "./account/subscriptions";
+export type {
+  AccountEvent,
+  AccountEventSubscription,
+  AccountEventTransport,
+  AccountEventType,
+  AccountSubscriptionOptions,
+} from "./account";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
 export { linkAccountToDid, verifyDidOwnership } from "./account/didAssociation";
 export type {
@@ -85,12 +170,41 @@ export type {
 } from "./account/didAssociation";
 export type {
   AccountInfo,
+  AccountMetadata,
   AssetBalance,
   BalanceAlert,
   BalanceAlertCondition,
   BalanceAlertRule,
   SponsorshipResult,
 } from "./account/types";
+// Standalone account functions for use without a client instance
+export { getAccount } from "./account/getAccount";
+export { getBalances } from "./account/getBalances";
+export { getAssetBalances } from "./account/getAssetBalances";
+export {
+  rotateAccountKey,
+  setAccountRecovery,
+  recoverAccountKeys,
+  isValidStellarPublicKey,
+} from "./account/keyRotation";
+export type {
+  RotateAccountKeyParams,
+  SetAccountRecoveryParams,
+  RecoverAccountKeysParams,
+  RecoveryReplacementSigner,
+} from "./account/keyRotation";
+export {
+  getAccountActivitySummary,
+  clearAccountActivitySummaryCache,
+  DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
+} from "./account/getAccountActivitySummary";
+export type {
+  ActivityPeriod,
+  AssetActivity,
+  CounterpartyActivity,
+  AccountActivitySummary,
+  GetAccountActivitySummaryOptions,
+} from "./account/getAccountActivitySummary";
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
@@ -138,14 +252,47 @@ export type {
   FeeEstimateInput,
   FeeEstimateOptions,
   FeeTiers,
+  CongestionFeeEstimate,
 } from "./transaction/estimateFee";
-export { calculateFeeTiers } from "./transaction/estimateFee";
+export {
+  calculateFeeTiers,
+  fetchCongestionFeeEstimate,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
+} from "./transaction/estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+  describeRouterSwapFailure,
+  discoverPaymentPaths,
+  clearPathDiscoveryCache,
+  DEFAULT_PATH_DISCOVERY_CACHE_TTL_MS,
+} from "./transaction/pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+  DiscoveredPaymentPath,
+  PaymentPathDiscoveryResult,
+  DiscoverPaymentPathsOptions,
+} from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   buildPathPayment,
   checkTrustlines,
   buildBulkTrustlines,
+  validateTrustline,
+  getBulkTrustlines,
+  buildBulkTrustlineTransaction,
 } from "./transaction/index";
+export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
 export { compose } from "./transaction/compose";
@@ -158,22 +305,74 @@ export {
   TRANSACTION_CONTEXT_TTL_MS,
   createTransactionContext,
 } from "./transaction/transactionContext";
-export type { TransactionBuilderContext } from "./transaction/transactionContext";
-export { buildAccountMerge } from "./transaction";
+export type {
+  TransactionBuilderContext,
+  SequenceValidationResult,
+} from "./transaction/transactionContext";
+export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+
+// ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
+export { buildFeeBumpTransaction } from "./transaction/feeBumpTransaction";
+
+// ─── Webhook support (#395) ───────────────────────────────────────────────────
 export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  dispatchTransactionEvent,
+  verifySignature,
+} from "./transaction/webhooks";
+export type {
+  WebhookEventType,
+  TransactionWebhookEvent,
+  LegacyWebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+  WebhookEventDetails,
+} from "./transaction/webhooks";
+export {
+  DEFAULT_PRICE_CACHE_TTL_MS,
   exportTransactionHistory,
+  getAssetPrice,
+  queryTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  subscribeToTransactionEvents,
 } from "./transaction";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
+  GetAssetPriceOptions,
+  PriceFeed,
+  PriceFeedStatus,
+  TransactionEvent,
+  TransactionEventSubscription,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
 } from "./transaction";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./transaction/queryTransactionHistory";
 export type {
   AccountCreateParams,
   AtomicSwapParams,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PathPaymentMode,
   PathPaymentParams,
   PaymentParams,
@@ -182,7 +381,19 @@ export type {
   TransactionStatus,
   TrustlineParams,
 } from "./transaction/types";
-export { validateTransaction } from "./transaction/validateTransaction";
+
+// ─── Asset pair trading logic (#209, #354) ────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
+} from "./transaction/assetPairs";
+export type { AssetPair, PairPrice } from "./transaction/assetPairs";
+export { validateTransaction, validateTransactionBatch } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
   TransactionValidationContext,
@@ -209,10 +420,16 @@ export type {
   TransactionTemplateStore,
   TemplateParamValue,
 } from "./transaction";
+// Standalone transaction functions for use without a client instance
+export { submitTransaction } from "./transaction/submitTransaction";
+export { getTransactionStatus } from "./transaction/status";
 
 // ─── Soroban simulator (#210) ──────────────────────────────────────────────────
 export { SorobanSimulator } from "./soroban/simulator";
-export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./soroban/simulator";
+export type {
+  SimulatedMethodResult,
+  SorobanSimulatorOptions,
+} from "./soroban/simulator";
 export { setSorobanSimulator } from "./shared/serverFactory";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
@@ -222,12 +439,96 @@ export type {
   SimulateContractSafeOptions,
 } from "./soroban/simulateContractSafe";
 export {
+  decodeAbiValue,
   decodeContractValue,
+  encodeAbiValue,
   encodeContractArgs,
+  serializeCustomType,
 } from "./soroban/contractEncoding";
+export { validateContractData } from "./soroban";
+export type {
+  ContractDataType,
+  ContractDataValidationIssue,
+  ContractDataValidationResult,
+} from "./soroban";
 export { parseContractResult } from "./soroban/parseContractResult";
-export { getContractMethods } from "./soroban/contractMetadata";
+export {
+  getContractMethods,
+  parseContractSchema,
+  validateContractArgs,
+} from "./soroban/contractMetadata";
+export type {
+  ContractSchema,
+  ContractMethodSchema,
+  ContractMethodParam,
+} from "./soroban/contractMetadata";
+// ─── Contract version detection & upgrade hook (#393) ─────────────────────────
+export {
+  getContractVersion,
+  invalidateContractVersionCache,
+  resetContractVersionTracking,
+} from "./soroban/contractVersion";
+export type {
+  ContractVersionInfo,
+  ContractUpgradeEvent,
+  OnContractUpgrade,
+  ContractVersionOptions,
+} from "./soroban/contractVersion";
+// ─── Contract error decoding (#391) ───────────────────────────────────────────
+export {
+  decodeContractError,
+  DEFAULT_CONTRACT_ERROR_MAP,
+  FACTORY_CONTRACT_ERRORS,
+  ROUTER_CONTRACT_ERRORS,
+  FACTORY_ERROR_CODES,
+  ROUTER_ERROR_CODES,
+} from "./soroban/contractErrors";
+export type {
+  ContractErrorInfo,
+  ContractErrorMap,
+  DecodedContractError,
+} from "./soroban/contractErrors";
+export { ContractInteractionBuilder } from "./soroban";
+export type {
+  ContractInteractionBuilderConfig,
+  ArgumentField,
+  MethodSelection,
+  GeneratedCallCode,
+  BuilderState,
+  BuilderStateListener,
+  BuilderStateUnsubscribe,
+} from "./soroban";
+export { invokeContract } from "./soroban/invokeContract";
+export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export {
+  validateDeployConfig,
+  collectDeployConfigIssues,
+  formatDeployConfigIssues,
+  DEPLOY_SALT_BYTES,
+} from "./soroban/validateDeployConfig";
+export type {
+  DeployConfigInput,
+  DeployConfigIssue,
+  ValidatedDeployConfig,
+} from "./soroban/validateDeployConfig";
+export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./soroban/decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./soroban/decodeContractEvent";
+export { getFactoryStatistics } from "./soroban/factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./soroban/factoryStatistics";
+export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
@@ -254,7 +555,9 @@ export type {
   BatchContractInvocation,
   BatchContractResult,
   ContractAbi,
+  ContractAbiField,
   ContractAbiMethod,
+  ContractAbiTypeDescriptor,
   ContractCallResult,
   ContractInvokeParams,
   ContractMethod,
@@ -264,14 +567,17 @@ export type {
   ParsedContractResult,
   PreparedContractCall,
   SimulateTransactionResult,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
   SorobanPollConfig,
 } from "./soroban/types";
 
 // ─── Response system ──────────────────────────────────────────────────────────
+export { SDK_VERSION } from "./shared/constants";
 export type { SorokitCache } from "./shared/cache";
-export { createInMemoryCache } from "./shared/cache";
+export { createInMemoryCache, invalidateContractState } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
-export type { LogLevel, LoggerConfig, SorokitLogger } from "./shared/logger";
+export type { LogLevel, LoggerOptions, SorokitLogger } from "./shared/logger";
 export {
   SorokitErrorCode,
   assertOk,
@@ -292,6 +598,16 @@ export type {
   RateLimiterEventType,
 } from "./shared/utils";
 
+// ─── Token validation utilities (#352) ────────────────────────────────────────
+export {
+  validateAssetCode,
+  validateAssetIssuer,
+  validateTokenAsset,
+  isSameAsset,
+  normalizePairId,
+} from "./shared/validateToken";
+export type { TokenAsset } from "./shared/validateToken";
+
 // ─── Distributed tracing (#212) ────────────────────────────────────────────
 export {
   getTraceContext,
@@ -302,16 +618,25 @@ export {
 } from "./shared/tracing";
 export type { TraceContext, TraceContextOptions } from "./shared/tracing";
 
-// ─── Metrics ──────────────────────────────────────────────────────────────────
+// ─── Metrics & performance profiling (#397) ───────────────────────────────────
 export {
   clearMetrics,
   getMetrics,
   metricsCollector,
   recordMetric,
   withMetrics,
+  configureProfiling,
+  isProfilingEnabled,
+  profileOperation,
+  getPerformanceMetrics,
+  exportPerformanceMetrics,
+  resetPerformanceMetrics,
+  DEFAULT_MAX_METRIC_ENTRIES,
 } from "./shared/metrics";
 export type {
   MetricEntry,
   MetricSummary,
   MetricsFilter,
+  ProfilingConfig,
+  PerformanceMetricsReport,
 } from "./shared/metrics";

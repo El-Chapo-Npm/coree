@@ -239,7 +239,9 @@ export class TokenBucketRateLimiter {
         throw new Error("defaultLimit must be a positive number");
       }
       this.defaultLimit = defaultLimit;
-      this.onMetricEvent = limitOrConfig.onMetricEvent;
+      if (limitOrConfig.onMetricEvent !== undefined) {
+        this.onMetricEvent = limitOrConfig.onMetricEvent;
+      }
 
       if (limitOrConfig.endpoints) {
         for (const [ep, limit] of Object.entries(limitOrConfig.endpoints)) {
@@ -299,8 +301,9 @@ export class TokenBucketRateLimiter {
   private drain(bucket: BucketState, endpoint: string = "default"): void {
     this.refill(bucket);
     while (bucket.queue.length > 0 && bucket.tokens >= 1) {
+      const resolve = bucket.queue.shift();
+      if (resolve === undefined) break;
       bucket.tokens -= 1;
-      const resolve = bucket.queue.shift()!;
       // Approximate wait from queue entry time stored in rejectedRequests tracking
       resolve();
       this.onMetricEvent?.({
@@ -525,4 +528,22 @@ export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promis
 
   _inflightRequests.set(key, promise);
   return promise;
+}
+
+/**
+ * Return the number of in-flight deduplicated requests currently active.
+ * Useful for diagnostics, testing, and observability dashboards.
+ *
+ * @example
+ * console.log("in-flight:", getInflightRequestCount());
+ */
+export function getInflightRequestCount(): number {
+  return _inflightRequests.size;
+}
+
+/**
+ * Clear all in-flight request records. Useful for test isolation.
+ */
+export function clearInflightRequests(): void {
+  _inflightRequests.clear();
 }

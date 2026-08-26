@@ -24,6 +24,100 @@ import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
+/** Minimum adaptive cache TTL: 2 minutes (used during high fee volatility >10% change). */
+export const ADAPTIVE_FEE_TTL_MIN_MS = 2 * 60 * 1000;
+
+/** Intermediate adaptive cache TTL: 5 minutes (used when fee volatility is between 5% and 10%). */
+export const ADAPTIVE_FEE_TTL_INTERMEDIATE_MS = 5 * 60 * 1000;
+
+/** Maximum adaptive cache TTL: 10 minutes (used during low fee volatility <5% change). */
+export const ADAPTIVE_FEE_TTL_MAX_MS = 10 * 60 * 1000;
+
+/** Maximum number of recent fee estimates retained per network for volatility tracking. */
+export const FEE_HISTORY_MAX_ENTRIES = 20;
+
+/** In-memory store of recent fee estimates keyed by network passphrase. */
+const feeHistoryByNetwork = new Map<string, number[]>();
+
+/**
+ * Record a fee estimate into the bounded history for the given network.
+ */
+export function recordFeeEstimate(
+  feeStroops: number,
+  networkPassphrase = "default",
+): void {
+  if (!Number.isFinite(feeStroops) || feeStroops <= 0) return;
+  const history = feeHistoryByNetwork.get(networkPassphrase) ?? [];
+  history.push(feeStroops);
+  if (history.length > FEE_HISTORY_MAX_ENTRIES) {
+    history.shift();
+  }
+  feeHistoryByNetwork.set(networkPassphrase, history);
+}
+
+/**
+ * Get a copy of the current bounded fee history for a network.
+ */
+export function getFeeHistory(networkPassphrase = "default"): number[] {
+  return [...(feeHistoryByNetwork.get(networkPassphrase) ?? [])];
+}
+
+/**
+ * Clear the fee history for a given network or all networks.
+ */
+export function clearFeeHistory(networkPassphrase?: string): void {
+  if (networkPassphrase) {
+    feeHistoryByNetwork.delete(networkPassphrase);
+  } else {
+    feeHistoryByNetwork.clear();
+  }
+}
+
+/**
+ * Calculate the adaptive cache TTL based on relative change from recent fee history.
+ *
+ * Volatility thresholds:
+ * - >10% change (>0.10)  -> 2-minute TTL (120,000 ms)
+ * - <5% change (<0.05)   -> up to 10-minute TTL (600,000 ms)
+ * - 5%–10% change        -> intermediate 5-minute TTL (300,000 ms)
+ *
+ * When insufficient history is available (<1 previous estimate) or inputs are invalid,
+ * safely falls back to the default 5-minute TTL.
+ */
+export function calculateAdaptiveFeeTtl(
+  currentFeeStroops: number,
+  history?: number[],
+): number {
+  if (!Number.isFinite(currentFeeStroops) || currentFeeStroops <= 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  if (!history || history.length === 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  const validEntries = history.filter((f) => Number.isFinite(f) && f > 0);
+  if (validEntries.length === 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  // Compare against the most recent recorded fee estimate
+  const previousFee = validEntries[validEntries.length - 1];
+  if (!previousFee || previousFee <= 0) {
+    return DEFAULT_FEE_CACHE_TTL_MS;
+  }
+
+  const relativeChange = Math.abs(currentFeeStroops - previousFee) / previousFee;
+
+  if (relativeChange > 0.10) {
+    return ADAPTIVE_FEE_TTL_MIN_MS;
+  }
+  if (relativeChange < 0.05) {
+    return ADAPTIVE_FEE_TTL_MAX_MS;
+  }
+  return ADAPTIVE_FEE_TTL_INTERMEDIATE_MS;
+}
+
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
  * network transaction fees. All values are in stroops (as strings).
@@ -55,6 +149,29 @@ export interface FeeEstimate {
   surge?: boolean;
   /** Fee tiers based on recent network congestion. Present only when includeTiers is true. */
   tiers?: FeeTiers;
+  /**
+   * Congestion-aware fee recommendations derived from the last 100 network
+   * transactions. Present only when `includeCongestionEstimate` is true.
+   */
+  congestion?: CongestionFeeEstimate;
+}
+
+/**
+ * Congestion-aware fee estimate derived from the median fees of the last 100
+ * network transactions (issue #193).
+ *
+ * - `minFee`         — 10th-percentile of recent fees; acceptable during low load.
+ * - `recommendedFee` — 50th-percentile (median); reliable under typical load.
+ * - `maxFee`         — 90th-percentile; prioritised inclusion during congestion.
+ * - `congestionLevel`— qualitative label derived from the ratio of the current
+ *                      fee estimate to the recent median.
+ */
+export interface CongestionFeeEstimate {
+  minFee: string;
+  recommendedFee: string;
+  maxFee: string;
+  /** "low" | "medium" | "high" based on estimated fee vs. recent median */
+  congestionLevel: "low" | "medium" | "high";
 }
 
 /** Optional hooks and cache for fee estimation. */
@@ -65,7 +182,15 @@ export interface FeeEstimateOptions {
   onFeeSurge?: (estimate: FeeEstimate) => void;
   /** When true, fetches recent transaction fees from Horizon and adds tier recommendations */
   includeTiers?: boolean;
+  /**
+   * When true, fetches the last 100 network transactions to compute
+   * congestion-aware min/recommended/max fees (issue #193).
+   */
+  includeCongestionEstimate?: boolean;
 }
+
+/** Number of recent transactions fetched to compute congestion-aware percentiles. */
+const CONGESTION_TX_LIMIT = 100;
 
 /**
  * Input for fee estimation.
@@ -93,6 +218,9 @@ export type FeeEstimateInput =
 
 /** Cache key for fee tiers derived from recent Horizon transactions. */
 export const FEE_TIERS_CACHE_KEY = "sorokit:fee-tiers";
+
+/** Cache key for congestion-aware fee estimate. */
+export const CONGESTION_FEE_CACHE_KEY = "sorokit:congestion-fee-estimate";
 
 /** Number of recent transactions fetched to compute fee tier percentiles. */
 const FEE_TIERS_TX_LIMIT = 50;
@@ -154,6 +282,82 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Fetch the last `CONGESTION_TX_LIMIT` transactions from Horizon to compute
+ * a congestion-aware fee estimate (issue #193).
+ *
+ * Returns `minFee` (p10), `recommendedFee` (p50), and `maxFee` (p90) plus a
+ * qualitative `congestionLevel` label based on the ratio of the current
+ * simulated fee to the recent median.
+ */
+export async function fetchCongestionFeeEstimate(
+  horizonUrl: string,
+  currentFeeStroops: number,
+  cache?: SorokitCache,
+): Promise<CongestionFeeEstimate> {
+  const base = parseInt(BASE_FEE, 10);
+  const fallback: CongestionFeeEstimate = {
+    minFee: String(base),
+    recommendedFee: String(base),
+    maxFee: String(base),
+    congestionLevel: "low",
+  };
+
+  if (cache) {
+    const cached = cache.get(CONGESTION_FEE_CACHE_KEY);
+    if (cached != null) {
+      // Re-compute the congestionLevel from the fresh simulated fee
+      const c = cached as CongestionFeeEstimate;
+      const median = parseInt(c.recommendedFee, 10);
+      return { ...c, congestionLevel: deriveCongestionLevel(currentFeeStroops, median) };
+    }
+  }
+
+  try {
+    const server = createHorizonServer(horizonUrl);
+    const page = await server
+      .transactions()
+      .order("desc")
+      .limit(CONGESTION_TX_LIMIT)
+      .call();
+
+    const fees = page.records
+      .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
+      .filter((f) => Number.isFinite(f) && f > 0);
+
+    const tiers = calculateFeeTiers(fees);
+    const median = parseInt(tiers.standard, 10);
+
+    const estimate: CongestionFeeEstimate = {
+      minFee: tiers.economy,
+      recommendedFee: tiers.standard,
+      maxFee: tiers.fast,
+      congestionLevel: deriveCongestionLevel(currentFeeStroops, median),
+    };
+
+    if (cache) {
+      // Cache without the dynamic congestionLevel so future callers recompute it
+      const toCache: CongestionFeeEstimate = { ...estimate };
+      cache.set(CONGESTION_FEE_CACHE_KEY, toCache, DEFAULT_FEE_CACHE_TTL_MS);
+    }
+
+    return estimate;
+  } catch {
+    return fallback;
+  }
+}
+
+function deriveCongestionLevel(
+  currentFeeStroops: number,
+  medianFeeStroops: number,
+): "low" | "medium" | "high" {
+  if (medianFeeStroops <= 0) return "low";
+  const ratio = currentFeeStroops / medianFeeStroops;
+  if (ratio >= 2) return "high";
+  if (ratio >= 1.2) return "medium";
+  return "low";
 }
 
 function describeFeeEstimateFailure(cause: unknown): string {
@@ -219,7 +423,6 @@ export async function estimateFee(
   options?: FeeEstimateOptions,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
-    const ttl = cacheTtlMs ?? DEFAULT_FEE_CACHE_TTL_MS;
     let xdr: string;
 
     if (input.kind === "xdr") {
@@ -232,8 +435,15 @@ export async function estimateFee(
       }
       xdr = input.transactionXdr;
     } else {
-      // Build a minimal sample payment transaction to simulate
+      // Validate amount is positive before building the transaction
       const { publicKey, destination, amount, assetCode, assetIssuer } = input;
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          "Amount must be positive",
+        );
+      }
       const horizonServer = createHorizonServer(horizonUrl);
       const sourceAccount = await horizonServer.loadAccount(publicKey);
 
@@ -311,6 +521,14 @@ export async function estimateFee(
       feeEstimate.tiers = await fetchFeeTiers(horizonUrl, options?.cache ?? cache);
     }
 
+    if (options?.includeCongestionEstimate) {
+      feeEstimate.congestion = await fetchCongestionFeeEstimate(
+        horizonUrl,
+        feeStroops,
+        options?.cache ?? cache,
+      );
+    }
+
     const medianCache = options?.cache ?? cache;
     const medianFee = await fetchRecentMedianFee(horizonUrl, medianCache);
     if (medianFee != null) {
@@ -319,6 +537,13 @@ export async function estimateFee(
         options.onFeeSurge(feeEstimate);
       }
     }
+
+    const networkPassphrase = networkConfig.networkPassphrase || "default";
+    const history = getFeeHistory(networkPassphrase);
+    const ttl = cacheTtlMs ?? calculateAdaptiveFeeTtl(feeStroops, history);
+
+    // Record fee into bounded history
+    recordFeeEstimate(feeStroops, networkPassphrase);
 
     // Store in cache so subsequent calls with the same XDR are free
     if (cache) {

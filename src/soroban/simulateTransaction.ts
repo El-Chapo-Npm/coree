@@ -1,5 +1,4 @@
-import { rpc as SorobanRpc, TransactionBuilder, Address } from "@stellar/stellar-sdk";
-import { createHash } from "crypto";
+import { rpc as SorobanRpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
@@ -8,40 +7,18 @@ import {
   isXdrInvalidError,
   toMessage,
 } from "../shared";
-import type { SimulateTransactionResult } from "./types";
+import type {
+  SimulateTransactionResult,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
+} from "./types";
 import type { SorokitCache } from "../shared/cache";
-import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { createSimulationCacheKey } from "./contractCallIdentity";
+import { createSorobanServer } from "../shared/serverFactory";
 
 export interface SimulateTransactionOptions {
   cache?: SorokitCache;
   ttlMs?: number;
-}
-
-function tryGetCacheKey(
-  transactionXdr: string,
-  networkPassphrase: string,
-): string | undefined {
-  try {
-    const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
-    if (!("operations" in tx)) return undefined;
-
-    const op = tx.operations.find((o) => o.type === "invokeHostFunction");
-    if (!op) return undefined;
-
-    const hostFn = (op as any).func;
-    if (!hostFn || hostFn.arm() !== "invokeContract") return undefined;
-
-    const invokeArgs = hostFn.invokeContract();
-    const scAddr = invokeArgs.contractAddress();
-    const contractId = Address.fromScAddress(scAddr).toString();
-    const method = invokeArgs.functionName().toString("utf8");
-    const argsXdr = invokeArgs.args().map((arg: any) => arg.toXDR("base64")).join("");
-
-    const inputString = contractId + method + argsXdr;
-    return createHash("sha256").update(inputString).digest("hex");
-  } catch {
-    return undefined;
-  }
 }
 
 function describeSimulationFailure(cause: unknown): string {
@@ -55,6 +32,79 @@ function describeSimulationFailure(cause: unknown): string {
     return `Transaction simulation failed due to network connectivity: ${toMessage(cause)}`;
   }
   return `Transaction simulation failed: ${toMessage(cause)}`;
+}
+
+function stringifyFee(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return String(value);
+}
+
+function extractResourceUsage(
+  simResult: SorobanRpc.Api.SimulateTransactionSuccessResponse,
+): SorobanSimulationResourceUsage {
+  const raw = simResult as unknown as {
+    cost?: {
+      cpuInsns?: unknown;
+      memBytes?: unknown;
+    };
+    transactionData?: {
+      resources?: () => {
+        instructions?: () => unknown;
+        readBytes?: () => number;
+        writeBytes?: () => number;
+        footprint?: () => {
+          readOnly?: () => unknown[];
+          readWrite?: () => unknown[];
+        };
+      };
+    };
+  };
+
+  const resources = raw.transactionData?.resources?.();
+  const footprint = resources?.footprint?.();
+  const readLedgerEntries = footprint?.readOnly?.().length;
+  const writeLedgerEntries = footprint?.readWrite?.().length;
+  const usage: SorobanSimulationResourceUsage = {};
+  const instructions = stringifyFee(resources?.instructions?.() ?? raw.cost?.cpuInsns);
+
+  if (instructions !== undefined) usage.instructions = instructions;
+  const readBytes = resources?.readBytes?.();
+  if (readBytes !== undefined) usage.readBytes = readBytes;
+  const writeBytes = resources?.writeBytes?.() ?? (
+    typeof raw.cost?.memBytes === "number" ? raw.cost.memBytes : undefined
+  );
+  if (writeBytes !== undefined) usage.writeBytes = writeBytes;
+  if (readLedgerEntries !== undefined) usage.readLedgerEntries = readLedgerEntries;
+  if (writeLedgerEntries !== undefined) usage.writeLedgerEntries = writeLedgerEntries;
+  if (readLedgerEntries !== undefined || writeLedgerEntries !== undefined) {
+    usage.footprint = {
+      ...(readLedgerEntries !== undefined ? { readOnly: readLedgerEntries } : {}),
+      ...(writeLedgerEntries !== undefined ? { readWrite: writeLedgerEntries } : {}),
+    };
+  }
+
+  return usage;
+}
+
+function extractFeeBreakdown(
+  simResult: SorobanRpc.Api.SimulateTransactionSuccessResponse,
+): SorobanSimulationFeeBreakdown {
+  const raw = simResult as unknown as {
+    minResourceFee?: unknown;
+    refundableFee?: unknown;
+    nonRefundableFee?: unknown;
+    totalFee?: unknown;
+  };
+
+  const minResourceFee = stringifyFee(raw.minResourceFee) ?? "0";
+  const refundableFee = stringifyFee(raw.refundableFee);
+  const nonRefundableFee = stringifyFee(raw.nonRefundableFee);
+  return {
+    minResourceFee,
+    ...(refundableFee !== undefined ? { refundableFee } : {}),
+    ...(nonRefundableFee !== undefined ? { nonRefundableFee } : {}),
+    total: stringifyFee(raw.totalFee) ?? minResourceFee,
+  };
 }
 
 /**
@@ -80,7 +130,9 @@ export async function simulateTransaction(
   }
 
   const cache = options?.cache;
-  const cacheKey = cache ? tryGetCacheKey(transactionXdr, networkPassphrase) : undefined;
+  const cacheKey = cache
+    ? createSimulationCacheKey(transactionXdr, networkPassphrase)
+    : undefined;
 
   if (cache && cacheKey) {
     const cached = cache.get(cacheKey);
@@ -104,7 +156,13 @@ export async function simulateTransaction(
     }
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
-      const result: SimulateTransactionResult = { success: true, fee: simResult.minResourceFee ?? "0" };
+      const feeBreakdown = extractFeeBreakdown(simResult);
+      const result: SimulateTransactionResult = {
+        success: true,
+        fee: feeBreakdown.minResourceFee,
+        resourceUsage: extractResourceUsage(simResult),
+        feeBreakdown,
+      };
       if (cache && cacheKey) {
         const ttlMs = options?.ttlMs ?? 5 * 60 * 1000;
         cache.set(cacheKey, result, ttlMs);

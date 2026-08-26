@@ -81,29 +81,55 @@ export {
   buildAccountMerge,
   checkTrustlines,
   buildBulkTrustlines,
+  validateTrustline,
+  getBulkTrustlines,
+  buildBulkTrustlineTransaction,
   clearSequenceCache,
+  validateMemoPolicy,
 } from "./buildTransaction";
-export type { AccountMergeOptions } from "./buildTransaction";
+export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
 export {
+  getAssetPrice,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  DEFAULT_PRICE_CACHE_TTL_MS,
+} from "./priceFeeds";
+export { subscribeToTransactionEvents } from "./subscriptions";
+export {
   exportTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
-export { validateTransaction } from "./validateTransaction";
+export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
 export { validateTransactionOffline } from "./validateTransactionOffline";
 export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "./transactionContext";
-export type { TransactionBuilderContext } from "./transactionContext";
+export type {
+  TransactionBuilderContext,
+  SequenceValidationResult,
+} from "./transactionContext";
+export {
+  createTransactionBuilder,
+} from "./transactionBuilder";
+export type {
+  TransactionBuilder,
+  TransactionOperation,
+} from "./transactionBuilder";
 export type {
   TransactionResult,
   TransactionStatus,
+  MemoType,
+  MemoParams,
+  MemoValidationRule,
+  MemoValidationConfig,
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
@@ -118,12 +144,70 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
+  CongestionFeeEstimate,
 } from "./estimateFee";
+export {
+  fetchCongestionFeeEstimate,
+  calculateAdaptiveFeeTtl,
+  recordFeeEstimate,
+  getFeeHistory,
+  clearFeeHistory,
+  ADAPTIVE_FEE_TTL_MIN_MS,
+  ADAPTIVE_FEE_TTL_MAX_MS,
+  ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
+  FEE_HISTORY_MAX_ENTRIES,
+} from "./estimateFee";
+export {
+  findSwapPath,
+  buildPathPaymentTransaction,
+  describeRouterSwapFailure,
+  discoverPaymentPaths,
+  clearPathDiscoveryCache,
+  DEFAULT_PATH_DISCOVERY_CACHE_TTL_MS,
+} from "./pathPayment";
+export type {
+  DiscoveredPaymentPath,
+  PaymentPathDiscoveryResult,
+  DiscoverPaymentPathsOptions,
+} from "./pathPayment";
+export type {
+  SwapRoute,
+  SwapRouteAsset,
+  FindSwapPathOptions,
+  BuildPathPaymentParams,
+} from "./pathPayment";
 export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
 export type {
+  AssetPrice,
+  PriceFeed,
+  PriceFeedStatus,
+} from "../shared/types";
+export type {
+  GetAssetPriceOptions,
+} from "./priceFeeds";
+export type {
+  EventSubscription as TransactionEventSubscription,
+  TransactionEvent,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
+} from "./subscriptions";
+export {
+  queryTransactionHistory,
+} from "./queryTransactionHistory";
+export type {
+  TransactionHistorySortField,
+  TransactionHistorySort,
+  TransactionHistoryQuery,
+  TransactionHistoryResult,
+} from "./queryTransactionHistory";
+export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
@@ -151,6 +235,43 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+// ─── Webhook support (#208, #395) ─────────────────────────────────────────────
+export {
+  registerWebhook,
+  unregisterWebhook,
+  listWebhooks,
+  clearWebhooks,
+  triggerWebhooks,
+  dispatchTransactionEvent,
+  verifySignature,
+} from "./webhooks";
+export type {
+  WebhookEventType,
+  TransactionWebhookEvent,
+  LegacyWebhookEventType,
+  WebhookRegistration,
+  WebhookPayload,
+  WebhookEventDetails,
+} from "./webhooks";
+
+// ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
+export { buildFeeBumpTransaction } from "./feeBumpTransaction";
+
+// ─── Asset pair trading logic (#209) ───────────────────────────────────────────
+export {
+  createAssetPair,
+  getPairPrice,
+  getMultiplePairPrices,
+  hasSufficientLiquidity,
+  getTradingPaths,
+  hasExistingPair,
+  resetPairRegistry,
+} from "./assetPairs";
+export type {
+  AssetPair,
+  PairPrice,
+} from "./assetPairs";
 export {
   buildMultiSigEnvelope,
   collectSignature,
@@ -211,6 +332,7 @@ export function eurcAsset(issuer?: string): Asset {
 import { estimateFee } from "./estimateFee";
 import type { FeeEstimate, FeeEstimateInput } from "./estimateFee";
 import type { SorokitResult } from "../shared/response";
+import type { ResolvedNetworkConfig } from "../shared/types";
 
 export interface NetworkFeeResult {
   network: string;
@@ -239,7 +361,7 @@ export interface NetworkFeeResult {
  */
 export async function compareFeeAcrossNetworks(
   transaction: FeeEstimateInput,
-  networks: Array<{ network: string; horizonUrl: string; rpcUrl: string; networkPassphrase: string }>,
+  networks: ResolvedNetworkConfig[],
 ): Promise<NetworkFeeResult[]> {
   const results = await Promise.all(
     networks.map(async (networkConfig) => {
@@ -254,3 +376,8 @@ export async function compareFeeAcrossNetworks(
   );
   return results;
 }
+
+// NOTE: Transaction pre-flight simulation uses the Soroban RPC server
+// and therefore lives in src/soroban/simulateTransaction.ts.
+// It can be accessed via client.soroban.simulate().
+

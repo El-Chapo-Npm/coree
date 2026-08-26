@@ -17,6 +17,7 @@ import {
   withErrorHandling,
   retryWithBackoff,
   deduplicateRequest,
+  getInflightRequestCount,
   TokenBucketRateLimiter,
   type RetryConfig,
   type ErrorHandler,
@@ -594,6 +595,22 @@ describe("shared/utils — deduplicateRequest (#24)", () => {
 
     expect(results[0]?.status).toBe("rejected");
     expect(results[1]?.status).toBe("rejected");
+  });
+
+  it("getInflightRequestCount returns 0 when no requests are in-flight", () => {
+    expect(getInflightRequestCount()).toBe(0);
+  });
+
+  it("getInflightRequestCount reflects active in-flight requests", async () => {
+    let resolve!: (v: string) => void;
+    const fn = () => new Promise<string>((res) => { resolve = res; });
+
+    const promise = deduplicateRequest("key-inflight-count", fn);
+    expect(getInflightRequestCount()).toBeGreaterThanOrEqual(1);
+
+    resolve("done");
+    await promise;
+    expect(getInflightRequestCount()).toBe(0);
   });
 });
 

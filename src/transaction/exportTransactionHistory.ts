@@ -1,9 +1,9 @@
-import { Horizon, TransactionBuilder } from "@stellar/stellar-sdk";
+import { TransactionBuilder } from "@stellar/stellar-sdk";
 import type { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
-import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { createHorizonServer } from "../shared/serverFactory";
 
 export type ExportFormat = "csv" | "json" | "CSV" | "JSON";
 
@@ -19,6 +19,26 @@ export interface ExportedTransaction {
   amount: string;
   fee: string;
   memo: string;
+  costBasis?: string;
+  proceeds?: string;
+  gainLoss?: string;
+}
+
+export interface CostBasisLot {
+  asset: string;
+  quantity: number | string;
+  unitCost: number | string;
+}
+
+export interface CostBasisOptions {
+  /** Static unit price by asset code or CODE:ISSUER. */
+  unitCostByAsset?: Record<string, number | string>;
+  /** FIFO lots used before falling back to unitCostByAsset. */
+  lots?: CostBasisLot[];
+  /** Static proceeds unit price by asset code or CODE:ISSUER. */
+  proceedsUnitByAsset?: Record<string, number | string>;
+  /** Decimal places for exported derived values. Default: 7. */
+  precision?: number;
 }
 
 export interface ExportTransactionHistoryOptions {
@@ -61,22 +81,24 @@ export interface ExportTransactionHistoryOptions {
   order?: "asc" | "desc";
   /** Network passphrase for parsing envelope XDR. */
   networkPassphrase?: string;
+  /** Optional cost-basis settings for taxable history exports. */
+  costBasis?: CostBasisOptions;
 }
 
-const FALLBACK_PASSPHRASE = "Test SDF Network ; September 2015";
-const HORIZON_PAGE_LIMIT = 200;
+export const FALLBACK_PASSPHRASE = "Test SDF Network ; September 2015";
+export const HORIZON_PAGE_LIMIT = 200;
 
-function parseTimestamp(value: string | Date | undefined): number | undefined {
+export function parseTimestamp(value: string | Date | undefined): number | undefined {
   if (value === undefined || value === null) return undefined;
   const ts = value instanceof Date ? value.getTime() : Date.parse(value);
   return Number.isFinite(ts) ? ts : undefined;
 }
 
-function normalizeTypeString(val: string): string {
+export function normalizeTypeString(val: string): string {
   return val.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function escapeCsvField(value: string | number | boolean | null | undefined): string {
+export function escapeCsvField(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) {
     return "";
   }
@@ -91,6 +113,9 @@ function escapeCsvField(value: string | number | boolean | null | undefined): st
  * Format an array of ExportedTransaction objects as an RFC 4180 compliant CSV string.
  */
 export function formatTransactionsToCsv(transactions: ExportedTransaction[]): string {
+  const includeCostBasis = transactions.some(
+    (tx) => tx.costBasis !== undefined || tx.proceeds !== undefined || tx.gainLoss !== undefined,
+  );
   const headers = [
     "Hash",
     "Date",
@@ -104,6 +129,9 @@ export function formatTransactionsToCsv(transactions: ExportedTransaction[]): st
     "Fee",
     "Memo",
   ];
+  if (includeCostBasis) {
+    headers.push("Cost Basis", "Proceeds", "Gain/Loss");
+  }
   const lines: string[] = [headers.join(",")];
 
   for (const tx of transactions) {
@@ -120,6 +148,13 @@ export function formatTransactionsToCsv(transactions: ExportedTransaction[]): st
       escapeCsvField(tx.fee),
       escapeCsvField(tx.memo),
     ];
+    if (includeCostBasis) {
+      row.push(
+        escapeCsvField(tx.costBasis),
+        escapeCsvField(tx.proceeds),
+        escapeCsvField(tx.gainLoss),
+      );
+    }
     lines.push(row.join(","));
   }
 
@@ -141,7 +176,76 @@ interface ExtractedOperation {
   amount: string;
 }
 
-function formatAssetString(assetObj: any): string {
+function normalizeAssetKey(asset: string): string {
+  return asset === "native" ? "XLM" : asset.toUpperCase();
+}
+
+function lookupAssetNumber(
+  values: Record<string, number | string> | undefined,
+  asset: string,
+): number | undefined {
+  if (!values) return undefined;
+  const exact = values[normalizeAssetKey(asset)];
+  const code = values[normalizeAssetKey(asset.split(":")[0] ?? asset)];
+  const resolved = exact ?? code;
+  if (resolved === undefined) return undefined;
+  const parsed = Number(resolved);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function consumeLots(
+  lots: CostBasisLot[] | undefined,
+  asset: string,
+  quantity: number,
+): number | undefined {
+  if (!lots || quantity <= 0) return undefined;
+  let remaining = quantity;
+  let basis = 0;
+
+  for (const lot of lots) {
+    if (normalizeAssetKey(lot.asset) !== normalizeAssetKey(asset)) continue;
+    const lotQuantity = Number(lot.quantity);
+    const lotUnitCost = Number(lot.unitCost);
+    if (!Number.isFinite(lotQuantity) || !Number.isFinite(lotUnitCost) || lotQuantity <= 0) {
+      continue;
+    }
+    const used = Math.min(remaining, lotQuantity);
+    basis += used * lotUnitCost;
+    remaining -= used;
+    if (remaining <= 0) break;
+  }
+
+  return remaining < quantity ? basis : undefined;
+}
+
+function applyCostBasis(
+  tx: ExportedTransaction,
+  options: CostBasisOptions | undefined,
+): ExportedTransaction {
+  if (!options) return tx;
+
+  const quantity = Number(tx.amount);
+  if (!Number.isFinite(quantity)) return tx;
+
+  const precision = options.precision ?? 7;
+  const absQuantity = Math.abs(quantity);
+  const unitCost = lookupAssetNumber(options.unitCostByAsset, tx.asset);
+  const lotBasis = consumeLots(options.lots, tx.asset, absQuantity);
+  const costBasis = lotBasis ?? (unitCost !== undefined ? absQuantity * unitCost : undefined);
+  const proceedsUnit = lookupAssetNumber(options.proceedsUnitByAsset, tx.asset);
+  const proceeds = proceedsUnit !== undefined ? absQuantity * proceedsUnit : undefined;
+  const gainLoss =
+    costBasis !== undefined && proceeds !== undefined ? proceeds - costBasis : undefined;
+
+  return {
+    ...tx,
+    ...(costBasis !== undefined ? { costBasis: costBasis.toFixed(precision) } : {}),
+    ...(proceeds !== undefined ? { proceeds: proceeds.toFixed(precision) } : {}),
+    ...(gainLoss !== undefined ? { gainLoss: gainLoss.toFixed(precision) } : {}),
+  };
+}
+
+export function formatAssetString(assetObj: any): string {
   if (!assetObj) return "XLM";
   if (typeof assetObj.isNative === "function" && assetObj.isNative()) {
     return "XLM";
@@ -155,7 +259,7 @@ function formatAssetString(assetObj: any): string {
   return "XLM";
 }
 
-function extractOperationsFromXdr(
+export function extractOperationsFromXdr(
   envelopeXdr: string,
   txSourceAccount: string,
   passphrase?: string,
@@ -397,7 +501,7 @@ export async function exportTransactionHistory(
             }
           }
 
-          exportedTransactions.push({
+          exportedTransactions.push(applyCostBasis({
             hash: tx.hash,
             date: createdAt || "",
             ledger: tx.ledger_attr,
@@ -409,7 +513,7 @@ export async function exportTransactionHistory(
             amount: op.amount,
             fee: String(tx.fee_charged),
             memo: tx.memo || "",
-          });
+          }, options?.costBasis));
 
           if (limit !== undefined && exportedTransactions.length >= limit) {
             keepFetching = false;
