@@ -15,7 +15,13 @@ export interface ContractDataValidationResult {
 }
 
 export { readContract } from "./readContract";
-export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
+export {
+  decodeAbiValue,
+  decodeContractValue,
+  encodeAbiValue,
+  encodeContractArgs,
+  serializeCustomType,
+} from "./contractEncoding";
 export { parseContractResult } from "./parseContractResult";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
@@ -143,6 +149,10 @@ export type {
   SimulateTransactionResult,
   BatchContractInvocation,
   BatchContractResult,
+  ContractAbiField,
+  ContractAbiTypeDescriptor,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
 } from "./types";
 
 const CONTRACT_DATA_TYPES = new Set<ContractDataType>([

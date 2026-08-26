@@ -925,7 +925,7 @@ export function createSorokitClient(
                 logger,
                 "account.getAccountsBatch",
                 { publicKeys },
-                () => getAccountsBatch(horizonUrl, publicKeys, { signal }),
+                () => getAccountsBatch(horizonUrl, publicKeys, { signal, ...(cache && { cache }) }),
               ),
           ).then(applyTx),
         ),

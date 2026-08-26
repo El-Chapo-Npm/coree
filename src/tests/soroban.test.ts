@@ -18,6 +18,11 @@ import { simulateContractSafe } from "../soroban/simulateContractSafe";
 import { simulateTransaction } from "../soroban/simulateTransaction";
 import { createContractStateTracker } from "../soroban/contractStateTracker";
 import {
+  decodeAbiValue,
+  encodeAbiValue,
+  serializeCustomType,
+} from "../soroban/contractEncoding";
+import {
   subscribeContractEvents,
   queryContractEvents,
 } from "../soroban/subscribeContractEvents";
@@ -2354,6 +2359,95 @@ describe("encodeContractArgs (#94)", () => {
   it("encodes zero args when method has no inputs", () => {
     const result = encodeContractArgs(method([]), []);
     expect(result).toEqual([]);
+  });
+
+  it("encodes ABI-described custom structs with typed fields", () => {
+    const val = serializeCustomType(
+      [
+        { name: "recipient", type: "address" },
+        { name: "amount", type: "u128" },
+        { name: "tags", type: { type: "vec", elementType: "symbol" } },
+      ],
+      {
+        recipient: Keypair.random().publicKey(),
+        amount: 100n,
+        tags: ["royalty", "primary"],
+      },
+      "payment",
+    );
+
+    expect(val.switch()).toEqual(xdr.ScValType.scvMap());
+    expect(val.map()).toHaveLength(3);
+  });
+
+  it("encodes and decodes typed ABI values", () => {
+    const encoded = encodeAbiValue({ type: "vec", elementType: "u32" }, [1, 2], "ids");
+
+    expect(encoded.switch()).toEqual(xdr.ScValType.scvVec());
+    expect(decodeAbiValue(encoded)).toEqual([1, 2]);
+  });
+});
+
+describe("simulateTransaction resource details", () => {
+  beforeEach(() => {
+    resetRpcSimulationMocks();
+  });
+
+  it("returns resource usage and fee breakdown when RPC exposes them", async () => {
+    const actualSdk = await vi.importActual<
+      typeof import("@stellar/stellar-sdk")
+    >("@stellar/stellar-sdk");
+    const contract = new actualSdk.Contract(
+      actualSdk.StrKey.encodeContract(Buffer.alloc(32)),
+    );
+    const sourceAccount = new actualSdk.Account(
+      actualSdk.Keypair.random().publicKey(),
+      "1",
+    );
+    const transactionXdr = new actualSdk.TransactionBuilder(sourceAccount, {
+      fee: actualSdk.BASE_FEE,
+      networkPassphrase: actualSdk.Networks.TESTNET,
+    })
+      .addOperation(contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world")))
+      .setTimeout(100)
+      .build()
+      .toXDR();
+
+    mockSimulateTransaction.mockResolvedValueOnce({
+      minResourceFee: "1200",
+      refundableFee: "200",
+      nonRefundableFee: "1000",
+      transactionData: {
+        resources: () => ({
+          instructions: () => 50000,
+          readBytes: () => 128,
+          writeBytes: () => 64,
+          footprint: () => ({
+            readOnly: () => ["ro"],
+            readWrite: () => ["rw"],
+          }),
+        }),
+      },
+    });
+
+    const result = await simulateTransaction(
+      networkConfig.rpcUrl,
+      actualSdk.Networks.TESTNET,
+      transactionXdr,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("1200");
+      expect(result.data.resourceUsage?.instructions).toBe("50000");
+      expect(result.data.resourceUsage?.readLedgerEntries).toBe(1);
+      expect(result.data.feeBreakdown).toEqual({
+        minResourceFee: "1200",
+        refundableFee: "200",
+        nonRefundableFee: "1000",
+        total: "1200",
+      });
+    }
   });
 });
 

@@ -14,6 +14,20 @@ export interface ContractMethodInput {
   type: string;
 }
 
+export interface ContractAbiField {
+  name: string;
+  type: string | ContractAbiTypeDescriptor;
+}
+
+export interface ContractAbiTypeDescriptor {
+  type: string;
+  valueType?: string | ContractAbiTypeDescriptor;
+  keyType?: string | ContractAbiTypeDescriptor;
+  elementType?: string | ContractAbiTypeDescriptor;
+  fields?: ContractAbiField[];
+  variants?: ContractAbiField[];
+}
+
 export interface ContractMethod {
   name: string;
   inputs: ContractMethodInput[];
@@ -118,6 +132,29 @@ export interface SimulateTransactionResult {
   success: boolean;
   /** Error message if simulation failed */
   error?: string;
+  /** Detailed ledger resource usage returned by Soroban RPC, when available */
+  resourceUsage?: SorobanSimulationResourceUsage;
+  /** Fee components derived from the RPC simulation response */
+  feeBreakdown?: SorobanSimulationFeeBreakdown;
+}
+
+export interface SorobanSimulationResourceUsage {
+  instructions?: string;
+  readBytes?: number;
+  writeBytes?: number;
+  readLedgerEntries?: number;
+  writeLedgerEntries?: number;
+  footprint?: {
+    readOnly?: number;
+    readWrite?: number;
+  };
+}
+
+export interface SorobanSimulationFeeBreakdown {
+  minResourceFee: string;
+  refundableFee?: string;
+  nonRefundableFee?: string;
+  total?: string;
 }
 
 /** A single contract invocation in a batch. */
