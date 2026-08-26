@@ -5,13 +5,14 @@
 
 import { DEFAULT_ADDRESS_DISPLAY_CHARS } from "./constants";
 import { isTransientError } from "./errors";
+import { isBrowser as isBrowserEnv } from "./environment";
 
 /**
  * Detect whether we are running in a browser environment.
  * Wallet extensions are browser-only — this guard prevents crashes in Node.
  */
 export function isBrowser(): boolean {
-  return typeof window !== "undefined";
+  return isBrowserEnv();
 }
 
 /**
