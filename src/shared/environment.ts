@@ -70,7 +70,6 @@ export const crypto: EnvironmentCrypto = {
     }
     if (isNode()) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const nodeCrypto = require("crypto");
         if (nodeCrypto.webcrypto && typeof nodeCrypto.webcrypto.getRandomValues === "function") {
           return nodeCrypto.webcrypto.getRandomValues(array);
