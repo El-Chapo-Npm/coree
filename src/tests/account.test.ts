@@ -1506,6 +1506,33 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
       expect(callCounts["key2"]).toBe(1);
     });
 
+    it("returns cached account metadata when requested", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { createInMemoryCache } = await import("../shared/cache");
+
+      const account = createAccount("metadata");
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+      const result = await getAccountsBatch("http://horizon", ["key1", "key1"], {
+        cache: createInMemoryCache(),
+        includeMetadata: true,
+      });
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0].account.data).toEqual(account);
+        expect(result.data[0].metadata?.data).toEqual({
+          publicKey: account.publicKey,
+          sequence: account.sequence,
+          subentryCount: account.subentryCount,
+        });
+        expect(result.data[1].metadata?.data?.publicKey).toBe(account.publicKey);
+      }
+      expect(vi.mocked(getAccount)).toHaveBeenCalledTimes(1);
+    });
+
     it("handles empty publicKeys array in getAccountsBatch", async () => {
       const { getAccountsBatch } = await import("../account/getAccountsBatch");
       const result = await getAccountsBatch("http://horizon", []);

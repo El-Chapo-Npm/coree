@@ -93,6 +93,14 @@ export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
 export {
+  getAssetPrice,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  DEFAULT_PRICE_CACHE_TTL_MS,
+} from "./priceFeeds";
+export { subscribeToTransactionEvents } from "./subscriptions";
+export {
   exportTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
@@ -138,6 +146,8 @@ export type {
   FeeEstimateOptions,
   FeeTiers,
   CongestionFeeEstimate,
+  TransactionPriority,
+  PriorityMultipliers,
 } from "./estimateFee";
 export {
   fetchCongestionFeeEstimate,
@@ -149,6 +159,7 @@ export {
   ADAPTIVE_FEE_TTL_MAX_MS,
   ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
   FEE_HISTORY_MAX_ENTRIES,
+  DEFAULT_PRIORITY_MULTIPLIERS,
 } from "./estimateFee";
 export {
   findSwapPath,
@@ -173,6 +184,21 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export type {
+  AssetPrice,
+  PriceFeed,
+  PriceFeedStatus,
+} from "../shared/types";
+export type {
+  GetAssetPriceOptions,
+} from "./priceFeeds";
+export type {
+  EventSubscription as TransactionEventSubscription,
+  TransactionEvent,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
+} from "./subscriptions";
 export {
   queryTransactionHistory,
 } from "./queryTransactionHistory";
@@ -183,6 +209,8 @@ export type {
   TransactionHistoryResult,
 } from "./queryTransactionHistory";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
@@ -282,6 +310,9 @@ export const EURC_MAINNET_ISSUER =
   "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2";
 export const EURC_TESTNET_ISSUER =
   "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO";
+
+export { compose } from "./compose";
+export type { OperationStep, ComposedPipeline } from "./compose";
 
 export function nativeAsset(): Asset {
   return Asset.native();

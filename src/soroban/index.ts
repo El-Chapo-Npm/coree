@@ -15,7 +15,13 @@ export interface ContractDataValidationResult {
 }
 
 export { readContract } from "./readContract";
-export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
+export {
+  decodeAbiValue,
+  decodeContractValue,
+  encodeAbiValue,
+  encodeContractArgs,
+  serializeCustomType,
+} from "./contractEncoding";
 export { parseContractResult } from "./parseContractResult";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
@@ -37,11 +43,14 @@ export {
   getContractMethods,
   parseContractSchema,
   validateContractArgs,
+  preloadContractMetadata,
+  setMetadataCacheCapacity,
 } from "./contractMetadata";
 export type {
   ContractSchema,
   ContractMethodSchema,
   ContractMethodParam,
+  ContractMetadataOptions,
 } from "./contractMetadata";
 export {
   getContractVersion,
@@ -125,6 +134,24 @@ export type {
   ContractEventFilter,
   ContractEventSubscriptionOptions,
 } from "./subscribeContractEvents";
+export {
+  InMemoryEventIndex,
+  indexContractEvent,
+  queryIndexedEvents,
+} from "./eventIndex";
+export type {
+  IndexedContractEvent,
+  IndexedEventFilter,
+  IndexedEventPage,
+  IndexedEventQueryResult,
+} from "./eventIndex";
+export { analyzeCallOptimization } from "./callOptimization";
+export type {
+  CallOptimizationReport,
+  CallOptimizationSuggestion,
+  OptimizationPriority,
+  OptimizationSuggestionType,
+} from "./callOptimization";
 export type {
   ContractMethod,
   ContractMethodInput,
@@ -140,6 +167,10 @@ export type {
   SimulateTransactionResult,
   BatchContractInvocation,
   BatchContractResult,
+  ContractAbiField,
+  ContractAbiTypeDescriptor,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
 } from "./types";
 
 const CONTRACT_DATA_TYPES = new Set<ContractDataType>([

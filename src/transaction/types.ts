@@ -249,6 +249,8 @@ export interface MultiSigEnvelope {
 
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,

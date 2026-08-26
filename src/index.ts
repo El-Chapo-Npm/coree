@@ -22,9 +22,20 @@ export {
   prioritizeWallet,
   recommendWallets,
   removeSignatureFromEnvelope,
+  createSigningChallenge,
+  mergeSignatures,
   signTransactionOffline,
+  getWalletCapabilities,
+  WALLET_CAPABILITY_IDS,
 } from "./wallet";
-export type { EnvelopeSignatureInput, SignatureHintInput } from "./wallet";
+export type {
+  CreateSigningChallengeOptions,
+  EnvelopeSignatureInput,
+  MergeSignaturesResult,
+  SignatureHintInput,
+  SigningChallenge,
+  SigningDelegationSignature,
+} from "./wallet";
 export {
   FreighterAdapter,
   LobstrAdapter,
@@ -45,6 +56,10 @@ export type {
   WalletDiagnosticReport,
   WalletFeature,
   WalletState,
+  WalletCapability,
+  WalletCapabilityId,
+  WalletCapabilitySource,
+  WalletCapabilities,
 } from "./wallet/types";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
@@ -79,7 +94,12 @@ export type {
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
-export type { ResolvedNetworkConfig } from "./shared/types";
+export type {
+  AssetPrice as SharedAssetPrice,
+  PriceFeed as SharedPriceFeed,
+  PriceFeedStatus as SharedPriceFeedStatus,
+  ResolvedNetworkConfig,
+} from "./shared/types";
 export {
   checkNetworkHealth,
   NetworkSwitcher,
@@ -120,14 +140,37 @@ export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { createBalanceAlert } from "./account/createBalanceAlert";
 export type { BalanceAlertConfig } from "./account/createBalanceAlert";
 export { getAccountsBatch } from "./account/getAccountsBatch";
+export type {
+  AccountBatchEntry,
+  AccountBatchResult,
+  GetAccountsBatchOptions,
+  GetAccountsBatchWithMetadataOptions,
+} from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { subscribeToAccountEvents } from "./account/subscriptions";
+export type {
+  AccountEvent,
+  AccountEventSubscription,
+  AccountEventTransport,
+  AccountEventType,
+  AccountSubscriptionOptions,
+} from "./account";
 export { setSponsor, removeSponsor } from "./account/sponsorship";
+export { linkAccountToDid, verifyDidOwnership } from "./account/didAssociation";
+export type {
+  DidAssociation,
+  DidDocument,
+  DidOwnershipVerification,
+  DidResolver,
+  OwnershipProof,
+} from "./account/didAssociation";
 export type {
   AccountInfo,
+  AccountMetadata,
   AssetBalance,
   BalanceAlert,
   BalanceAlertCondition,
@@ -210,6 +253,8 @@ export type {
   FeeEstimateOptions,
   FeeTiers,
   CongestionFeeEstimate,
+  TransactionPriority,
+  PriorityMultipliers,
 } from "./transaction/estimateFee";
 export {
   calculateFeeTiers,
@@ -222,6 +267,7 @@ export {
   ADAPTIVE_FEE_TTL_MAX_MS,
   ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
   FEE_HISTORY_MAX_ENTRIES,
+  DEFAULT_PRIORITY_MULTIPLIERS,
 } from "./transaction/estimateFee";
 export {
   findSwapPath,
@@ -252,6 +298,8 @@ export {
 export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
+export { compose } from "./transaction/compose";
+export type { OperationStep, ComposedPipeline } from "./transaction/compose";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -289,15 +337,31 @@ export type {
   WebhookEventDetails,
 } from "./transaction/webhooks";
 export {
+  DEFAULT_PRICE_CACHE_TTL_MS,
   exportTransactionHistory,
+  getAssetPrice,
   queryTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
+  normalizeAsset,
+  normalizePrice,
+  StaticPriceFeed,
+  subscribeToTransactionEvents,
 } from "./transaction";
 export type {
+  CostBasisLot,
+  CostBasisOptions,
   ExportFormat,
   ExportedTransaction,
   ExportTransactionHistoryOptions,
+  GetAssetPriceOptions,
+  PriceFeed,
+  PriceFeedStatus,
+  TransactionEvent,
+  TransactionEventSubscription,
+  TransactionEventTransport,
+  TransactionEventType,
+  TransactionSubscriptionOptions,
 } from "./transaction";
 export type {
   TransactionHistorySortField,
@@ -378,8 +442,11 @@ export type {
   SimulateContractSafeOptions,
 } from "./soroban/simulateContractSafe";
 export {
+  decodeAbiValue,
   decodeContractValue,
+  encodeAbiValue,
   encodeContractArgs,
+  serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
 export type {
@@ -468,6 +535,20 @@ export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
+export type {
+  IndexedContractEvent,
+  IndexedEventFilter,
+  IndexedEventPage,
+  IndexedEventQueryResult,
+} from "./soroban/eventIndex";
+export { analyzeCallOptimization } from "./soroban/callOptimization";
+export type {
+  CallOptimizationReport,
+  CallOptimizationSuggestion,
+  OptimizationPriority,
+  OptimizationSuggestionType,
+} from "./soroban/callOptimization";
 export type {
   ContractEvent,
   ContractEventFilter,
@@ -477,7 +558,9 @@ export type {
   BatchContractInvocation,
   BatchContractResult,
   ContractAbi,
+  ContractAbiField,
   ContractAbiMethod,
+  ContractAbiTypeDescriptor,
   ContractCallResult,
   ContractInvokeParams,
   ContractMethod,
@@ -487,6 +570,8 @@ export type {
   ParsedContractResult,
   PreparedContractCall,
   SimulateTransactionResult,
+  SorobanSimulationFeeBreakdown,
+  SorobanSimulationResourceUsage,
   SorobanPollConfig,
 } from "./soroban/types";
 
