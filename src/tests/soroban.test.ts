@@ -352,6 +352,7 @@ describe("soroban contract metadata", () => {
           name: "hello",
           inputs: [{ name: "to", type: "symbol" }],
           returnType: "string",
+          visibility: "public",
         },
       ]);
     }
@@ -2959,6 +2960,248 @@ describe("validateContractArgs", () => {
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
       expect(result.error.message).toContain("amount");
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// ─── #383 contract method visibility and authorization ─────────────────────
+
+describe("contract method visibility and authorization (#383)", () => {
+  const OWNER_KEY = Keypair.random().publicKey();
+
+  it("allows prepareContractCall for a method with public visibility", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "transfer",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "transfer", inputs: [], returnType: null, visibility: "public" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("rejects prepareContractCall for a method with private visibility", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "internal_helper",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "internal_helper", inputs: [], returnType: null, visibility: "private" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("private");
+      expect(result.error.message).toContain("internal_helper");
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepareContractCall for a method with admin visibility", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "upgrade",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "upgrade", inputs: [], returnType: null, visibility: "admin" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("admin");
+      expect(result.error.message).toContain("upgrade");
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects prepareContractCall for a method with restricted visibility", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "restricted_fn",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "restricted_fn", inputs: [], returnType: null, visibility: "restricted" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("restricted");
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("allows methods without visibility metadata (backward compatible)", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "legacy_method",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "legacy_method", inputs: [], returnType: null },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("allows calls when the invoking account is in requiredSigners", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "authorized_fn",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          {
+            name: "authorized_fn",
+            inputs: [],
+            returnType: null,
+            authorizationRequirements: { requiredSigners: [OWNER_KEY] },
+          },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("rejects calls when the invoking account is not in requiredSigners", async () => {
+    resetRpcSimulationMocks();
+
+    const unauthorizedKey = Keypair.random().publicKey();
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "authorized_fn",
+        args: [],
+        publicKey: unauthorizedKey,
+        cachedMetadata: [
+          {
+            name: "authorized_fn",
+            inputs: [],
+            returnType: null,
+            authorizationRequirements: { requiredSigners: [OWNER_KEY] },
+          },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("authorization");
+      expect(result.error.message).not.toContain(OWNER_KEY);
+    }
+    expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("allows calls when requiredSigners is empty", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "open_fn",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          {
+            name: "open_fn",
+            inputs: [],
+            returnType: null,
+            authorizationRequirements: { requiredSigners: [] },
+          },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("still validates argument counts alongside visibility checks", async () => {
+    resetRpcSimulationMocks();
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "transfer",
+        args: [],
+        publicKey: OWNER_KEY,
+        cachedMetadata: [
+          { name: "transfer", inputs: [{ name: "amount", type: "u128" }], returnType: null, visibility: "public" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("expects 1 argument");
     }
     expect(mockSimulateTransaction).not.toHaveBeenCalled();
   });

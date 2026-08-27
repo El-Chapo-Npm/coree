@@ -8,6 +8,8 @@ export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter"
 export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
 export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
 export { WalletType } from "./types";
+
+import type { PersistenceAdapter } from "./types";
 export type {
   WalletState,
   WalletAdapter,
@@ -26,6 +28,7 @@ export type {
   WalletCapabilityId,
   WalletCapabilitySource,
   WalletCapabilities,
+  PersistenceAdapter,
 } from "./types";
 export {
   getSigningHistory,
@@ -569,4 +572,69 @@ export async function diagnoseWalletConnection(
     findings,
     recommendations,
   });
+}
+
+/**
+ * Create a {@link PersistenceAdapter} backed by `localStorage`.
+ *
+ * Returns `null` when `localStorage` is not available (e.g. in Node or
+ * in a sandboxed iframe).  The default storage key is
+ * `"sorokit:wallet"`.
+ *
+ * @param storageKey - Key under which wallet state is persisted.
+ *
+ * @example
+ * const adapter = createLocalStorageAdapter();
+ * if (adapter) {
+ *   const client = createSorokitClient({ network: "testnet", persistenceAdapter: adapter });
+ * }
+ */
+export function createLocalStorageAdapter(
+  storageKey = "sorokit:wallet",
+): PersistenceAdapter | null {
+  if (
+    typeof globalThis.localStorage === "undefined" ||
+    globalThis.localStorage === null
+  ) {
+    return null;
+  }
+
+  return {
+    save(key: string, value: WalletState): void {
+      try {
+        globalThis.localStorage.setItem(
+          `${storageKey}:${key}`,
+          JSON.stringify(value),
+        );
+      } catch {
+        // Storage quota exceeded or security error — silently ignore
+      }
+    },
+
+    load(key: string): WalletState | null {
+      try {
+        const raw = globalThis.localStorage.getItem(`${storageKey}:${key}`);
+        if (raw === null) return null;
+        const parsed = JSON.parse(raw) as WalletState;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          typeof parsed.connected === "boolean"
+        ) {
+          return parsed;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+
+    clear(key: string): void {
+      try {
+        globalThis.localStorage.removeItem(`${storageKey}:${key}`);
+      } catch {
+        // Silently ignore
+      }
+    },
+  };
 }

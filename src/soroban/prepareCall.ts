@@ -84,15 +84,39 @@ export async function prepareContractCall(
   );
   if (metadataResult.status === "error") return metadataResult;
 
-  if (params.cachedMetadata && params.args?.length) {
+  // ─── Visibility, authorization, and argument validation ───────────────
+  if (params.cachedMetadata) {
     const methodMeta = params.cachedMetadata.find((m) => m.name === params.method);
+
     if (methodMeta) {
-      const argsValidation = validateContractArgs(
-        methodMeta,
-        params.args,
-        SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      );
-      if (argsValidation.status === "error") return argsValidation;
+      // Visibility: reject explicitly non-public methods
+      if (methodMeta.visibility && methodMeta.visibility !== "public") {
+        return err(
+          SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+          `Method '${params.method}' has '${methodMeta.visibility}' visibility and cannot be invoked from the client.`,
+        );
+      }
+
+      // Authorization: validate that the invoking account is authorized
+      if (methodMeta.authorizationRequirements?.requiredSigners) {
+        const required = methodMeta.authorizationRequirements.requiredSigners;
+        if (required.length > 0 && !required.includes(params.publicKey)) {
+          return err(
+            SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+            `Method '${params.method}' requires authorization — the invoking account is not among the authorized signers.`,
+          );
+        }
+      }
+
+      // Argument count and type validation
+      if (params.args?.length) {
+        const argsValidation = validateContractArgs(
+          methodMeta,
+          params.args,
+          SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+        );
+        if (argsValidation.status === "error") return argsValidation;
+      }
     }
   }
 

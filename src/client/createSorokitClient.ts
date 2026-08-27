@@ -98,6 +98,7 @@ import type {
   WalletAdapter,
   WalletState,
   SignTransactionInput,
+  PersistenceAdapter,
 } from "../wallet/types";
 import type { AccountInfo, AssetBalance } from "../account/types";
 import type { AssetBalanceFilter } from "../account/getAssetBalances";
@@ -207,6 +208,15 @@ export interface SorokitClientConfig {
    * as does the global `timeoutMs` override above.
    */
   defaultTimeoutMs?: number;
+  /**
+   * Optional adapter for persisting wallet connection state across page
+   * reloads.  When provided, the client automatically saves wallet state
+   * after each successful connect/disconnect and attempts to restore it
+   * on client creation.  Restored state is validated against the wallet
+   * adapter — if validation fails, the client returns a disconnected
+   * state instead of crashing.
+   */
+  persistenceAdapter?: PersistenceAdapter;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -754,6 +764,15 @@ export function createSorokitClient(
     });
   }
 
+  // Attempt to restore persisted wallet state from the persistence adapter
+  const persistenceAdapter = config.persistenceAdapter;
+  if (persistenceAdapter) {
+    const persisted = persistenceAdapter.load("state");
+    logger.debug("client.create: checked persistence adapter for wallet state", {
+      hasPersistedState: !!persisted,
+    });
+  }
+
   const client: SorokitClient = {
     version: SDK_VERSION,
     networkConfig,
@@ -797,6 +816,7 @@ export function createSorokitClient(
     wallet: {
       connect: (adapter, timeoutMs) => {
         const action = () => {
+          // Try cache-based recovery first
           if (cache) {
             const cachedVal = cache.get("wallet:state");
             let cached: WalletState | null = null;
@@ -822,12 +842,55 @@ export function createSorokitClient(
                   walletType: adapter.walletType,
                   status: "ok",
                 });
+                // Persist restored state via the persistence adapter
+                if (persistenceAdapter) {
+                  persistenceAdapter.save("state", cached);
+                }
                 return Promise.resolve(applyTx(ok(cached)));
               } else {
                 logger.warn("wallet.connect.recover.validation_failed", {
                   walletType: adapter.walletType,
                 });
                 cache.invalidate("wallet:state");
+                if (persistenceAdapter) {
+                  persistenceAdapter.clear("state");
+                }
+                return Promise.resolve(
+                  applyTx(
+                    ok({
+                      connected: false,
+                      publicKey: null,
+                      walletType: null,
+                    }),
+                  ),
+                );
+              }
+            }
+          }
+
+          // Try persistence adapter recovery
+          if (persistenceAdapter) {
+            const persisted = persistenceAdapter.load("state");
+            if (
+              persisted &&
+              persisted.connected &&
+              persisted.walletType === adapter.walletType
+            ) {
+              if (adapter.isAvailable()) {
+                logger.info("wallet.connect.recover.persistence", {
+                  walletType: adapter.walletType,
+                  status: "ok",
+                });
+                // Also hydrate the cache if available
+                if (cache) {
+                  cache.set("wallet:state", persisted);
+                }
+                return Promise.resolve(applyTx(ok(persisted)));
+              } else {
+                logger.warn("wallet.connect.recover.persistence.validation_failed", {
+                  walletType: adapter.walletType,
+                });
+                persistenceAdapter.clear("state");
                 return Promise.resolve(
                   applyTx(
                     ok({
@@ -846,7 +909,13 @@ export function createSorokitClient(
             "wallet.connect",
             { walletType: adapter.walletType },
             () => connectWallet(adapter, cache),
-          );
+          ).then((result) => {
+            // Persist successful connection via the persistence adapter
+            if (result.status === "ok" && persistenceAdapter) {
+              persistenceAdapter.save("state", result.data);
+            }
+            return result;
+          });
         };
         return guard("wallet_connect", timeoutMs, () =>
           withErrorHandling(
@@ -873,7 +942,13 @@ export function createSorokitClient(
                 "wallet.disconnect",
                 { walletType: adapter.walletType },
                 () => disconnectWallet(adapter, cache),
-              ),
+              ).then((result) => {
+                // Clear persisted state on successful disconnect
+                if (result.status === "ok" && persistenceAdapter) {
+                  persistenceAdapter.clear("state");
+                }
+                return result;
+              }),
           ).then(applyTx),
         ),
       signTransaction: (adapter, input, timeoutMs) =>

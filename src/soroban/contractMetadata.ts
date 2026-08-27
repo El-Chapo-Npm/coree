@@ -230,7 +230,7 @@ function methodFromSpecEntry(entry: xdr.ScSpecEntry): ContractMethod | null {
       ? null
       : outputs.map((output) => specTypeToString(output)).join(", ");
 
-  return { name, inputs, returnType };
+  return { name, inputs, returnType, visibility: "public" };
 }
 
 function parseContractMethodsFromWasm(wasm: Uint8Array): ContractMethod[] {
