@@ -596,6 +596,18 @@ export {
   ok,
 } from "./shared/response";
 export type { SorokitError, SorokitResult } from "./shared/response";
+export {
+  AssetMappingRegistry,
+  assetMappingRegistry,
+  unwrapAssetFromSoroban,
+  wrapAssetForSoroban,
+} from "./soroban/assetBridge";
+export type {
+  AssetBridgeAdapter,
+  AssetBridgeOperationOptions,
+  AssetIdentifier,
+  AssetMapping,
+} from "./soroban/assetBridge";
 export { generateTraceId, TokenBucketRateLimiter } from "./shared/utils";
 export type {
   EndpointRateLimitConfig,
