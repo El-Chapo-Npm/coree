@@ -349,6 +349,16 @@ export {
   normalizePrice,
   StaticPriceFeed,
   subscribeToTransactionEvents,
+  subscribePrices,
+  WebSocketPriceProvider,
+  computeBackoffDelay,
+} from "./transaction";
+export type {
+  PriceUpdate,
+  PriceSubscription,
+  PriceSubscriptionProvider,
+  PriceSubscriptionOptions,
+  WebSocketPriceProviderOptions,
 } from "./transaction";
 export type {
   CostBasisLot,
