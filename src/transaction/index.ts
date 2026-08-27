@@ -99,6 +99,18 @@ export {
   StaticPriceFeed,
   DEFAULT_PRICE_CACHE_TTL_MS,
 } from "./priceFeeds";
+export {
+  subscribePrices,
+  WebSocketPriceProvider,
+  computeBackoffDelay,
+} from "./priceSubscriptions";
+export type {
+  PriceUpdate,
+  PriceSubscription,
+  PriceSubscriptionProvider,
+  PriceSubscriptionOptions,
+  WebSocketPriceProviderOptions,
+} from "./priceSubscriptions";
 export { subscribeToTransactionEvents } from "./subscriptions";
 export {
   exportTransactionHistory,
