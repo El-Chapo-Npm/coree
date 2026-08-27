@@ -36,6 +36,12 @@ export { invokeContract } from "./invokeContract";
 export type { InvokeContractOptions } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
 export {
+  andEventFilters,
+  calculateRate,
+  countByType,
+  filterContractEvents,
+  groupByTime,
+  orEventFilters,
   subscribeContractEvents,
   queryContractEvents,
   streamContractEvents,
@@ -134,6 +140,7 @@ export type { NftMetadata, NftMetadataOptions } from "./nftMetadata";
 export type { BuildContractDeployOptions } from "./deployContract";
 export type {
   ContractEvent,
+  EventFilterPredicate,
   ContractEventFilter,
   ContractEventSubscriptionOptions,
 } from "./subscribeContractEvents";

@@ -538,7 +538,17 @@ export { simulateTransactionBatch } from "./soroban/simulateTransaction";
 export type { BatchSimulationResult } from "./soroban/simulateTransaction";
 export { getNftMetadata, clearNftMetadataCache } from "./soroban/nftMetadata";
 export type { NftMetadata, NftMetadataOptions } from "./soroban/nftMetadata";
-export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export {
+  andEventFilters,
+  calculateRate,
+  countByType,
+  filterContractEvents,
+  groupByTime,
+  orEventFilters,
+  queryContractEvents,
+  streamContractEvents,
+  subscribeContractEvents,
+} from "./soroban/subscribeContractEvents";
 export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
 export type {
   IndexedContractEvent,
@@ -555,6 +565,7 @@ export type {
 } from "./soroban/callOptimization";
 export type {
   ContractEvent,
+  EventFilterPredicate,
   ContractEventFilter,
   ContractEventSubscriptionOptions,
 } from "./soroban/subscribeContractEvents";
