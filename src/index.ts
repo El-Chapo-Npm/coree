@@ -552,6 +552,7 @@ export {
   queryContractEvents,
   streamContractEvents,
   subscribeContractEvents,
+  DEFAULT_RECOVERY_WINDOW_MS,
 } from "./soroban/subscribeContractEvents";
 export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
 export type {

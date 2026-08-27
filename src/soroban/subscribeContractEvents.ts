@@ -35,6 +35,8 @@ export interface ContractEventSubscriptionOptions {
   deduplicationTtlMs?: number;
   /** Maximum number of entries in the seen-event deduplication set. Default: 10000. */
   deduplicationMaxSize?: number;
+  /** Maximum age (ms) of missed ledgers to recover after reconnection. Default: 60000 (1 minute). */
+  recoveryWindowMs?: number;
 }
 
 /** Default TTL for deduplication entries: 1 hour (3,600,000 ms). */
@@ -42,6 +44,9 @@ export const DEFAULT_DEDUPLICATION_TTL_MS = 60 * 60 * 1000;
 
 /** Default maximum number of entries in the deduplication set. */
 export const DEFAULT_DEDUPLICATION_MAX_SIZE = 10_000;
+
+/** Default recovery window: 1 minute (60,000 ms). */
+export const DEFAULT_RECOVERY_WINDOW_MS = 60 * 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -201,6 +206,66 @@ function eventTimestamp(event: ContractEvent): number | undefined {
   return undefined;
 }
 
+/**
+ * Fetch events from a range of ledger sequences for a specific contract.
+ * Used to recover events missed during a disconnection.
+ */
+async function recoverMissedEvents(
+  horizonUrl: string,
+  contractId: string,
+  fromLedger: number,
+  toLedger: number,
+  requestFetch: typeof fetch,
+  filter?: ContractEventFilter | EventFilterPredicate,
+): Promise<ContractEvent[]> {
+  const recoveredEvents: ContractEvent[] = [];
+  const base = horizonUrl.replace(/\/$/, "");
+
+  // Batch into chunks of 100 ledgers to avoid too many requests
+  const batchSize = 100;
+  const fromSeq = fromLedger + 1; // start after the last processed ledger
+
+  for (let seq = fromSeq; seq <= toLedger; seq += batchSize) {
+    const batchEnd = Math.min(seq + batchSize - 1, toLedger);
+    const ledgerPromises: Promise<ContractEvent[]>[] = [];
+
+    for (let ledgerSeq = seq; ledgerSeq <= batchEnd; ledgerSeq++) {
+      ledgerPromises.push(
+        (async () => {
+          try {
+            const endpoint = new URL(`${base}/ledgers/${ledgerSeq}`);
+            const response = await requestFetch(endpoint.toString());
+            if (!response.ok) return [];
+
+            const payload = await response.json();
+            const records = readRecords(payload);
+            return records.filter((event) => {
+              const eventContractId = typeof event.contractId === "string" ? event.contractId : "";
+              return eventContractId === contractId;
+            }).filter((event) => matchesEventFilter(event, filter));
+          } catch {
+            return [];
+          }
+        })(),
+      );
+    }
+
+    const batchResults = await Promise.all(ledgerPromises);
+    for (const events of batchResults) {
+      recoveredEvents.push(...events);
+    }
+  }
+
+  // Sort by ledger sequence to preserve ordering
+  recoveredEvents.sort((a, b) => {
+    const ledgerA = typeof a.ledger === "number" ? a.ledger : 0;
+    const ledgerB = typeof b.ledger === "number" ? b.ledger : 0;
+    return ledgerA - ledgerB;
+  });
+
+  return recoveredEvents;
+}
+
 export function countByType(events: readonly ContractEvent[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const event of events) {
@@ -254,8 +319,24 @@ export function subscribeContractEvents(
   const seenEventIds = new Map<string, number>();
   const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
   const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
+  const recoveryWindowMs = options.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
+  let lastProcessedLedger: number | undefined;
+  let polling = false;
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Deduplicate a batch of events against the seen set, returning only
+   * events not yet delivered and marking them as seen.
+   */
+  const deduplicateEvents = (events: ContractEvent[]): ContractEvent[] => {
+    return events.filter((event) => {
+      const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
+      if (!id || seenEventIds.has(id)) return false;
+      seenEventIds.set(id, Date.now());
+      return true;
+    });
+  };
 
   const scheduleNextPoll = (): void => {
     if (!active) return;
@@ -266,7 +347,8 @@ export function subscribeContractEvents(
   };
 
   const poll = async (): Promise<void> => {
-    if (!active) return;
+    if (!active || polling) return;
+    polling = true;
 
     try {
       const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/ledgers`);
@@ -279,6 +361,46 @@ export function subscribeContractEvents(
       }
 
       const payload = await response.json();
+      // Extract the latest ledger sequence from either `records` or `_embedded.records`
+      const rawRecords: unknown[] = Array.isArray(payload.records)
+        ? payload.records
+        : isRecord(payload._embedded) && Array.isArray((payload._embedded as Record<string, unknown>).records)
+          ? (payload._embedded as Record<string, unknown>).records as unknown[]
+          : [];
+      const latestLedgerRecord = rawRecords[0];
+      const latestSequence = typeof (latestLedgerRecord as Record<string, unknown> | undefined)?.sequence === "number"
+        ? ((latestLedgerRecord as Record<string, unknown>).sequence as number)
+        : undefined;
+
+      // Recover missed events if we detect a gap (skip consecutive ledgers)
+      let recoveredEvents: ContractEvent[] = [];
+      if (
+        lastProcessedLedger !== undefined &&
+        latestSequence !== undefined &&
+        latestSequence > lastProcessedLedger + 1
+      ) {
+        const recoveryLedgerStart = lastProcessedLedger;
+        const estimatedLedgerAgeMs = 5500; // ~5.5s per ledger on Stellar
+        const maxRecoveryLedgers = Math.ceil(recoveryWindowMs / estimatedLedgerAgeMs);
+        const fromLedger = Math.max(recoveryLedgerStart, latestSequence - maxRecoveryLedgers);
+
+        if (fromLedger < latestSequence) {
+          try {
+            recoveredEvents = await recoverMissedEvents(
+              options.horizonUrl,
+              contractId,
+              fromLedger,
+              latestSequence,
+              requestFetch,
+              eventFilter,
+            );
+          } catch {
+            // Recovery failure is non-fatal; continue polling
+          }
+        }
+      }
+
+      // Process current ledger events
       const events = readRecords(payload)
         .filter((event) => {
           const eventContractId = typeof event.contractId === "string" ? event.contractId : "";
@@ -288,18 +410,27 @@ export function subscribeContractEvents(
 
       evictSeenEvents(seenEventIds, deduplicationTtlMs, deduplicationMaxSize);
 
-      const newEvents = events.filter((event) => {
-        const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
-        if (!id || seenEventIds.has(id)) return false;
-        seenEventIds.set(id, Date.now());
-        return true;
-      });
+      const currentNewEvents = deduplicateEvents(events);
 
-      if (newEvents.length > 0) {
-        callback(newEvents);
+      // Deliver recovered events first (preserves ordering: recovered → current)
+      if (recoveredEvents.length > 0) {
+        const dedupedRecovered = deduplicateEvents(recoveredEvents);
+        if (dedupedRecovered.length > 0) {
+          callback(dedupedRecovered);
+        }
+      }
+
+      if (currentNewEvents.length > 0) {
+        callback(currentNewEvents);
+      }
+
+      if (latestSequence !== undefined) {
+        lastProcessedLedger = latestSequence;
       }
     } catch {
       // Ignore polling failures and keep the subscription alive.
+    } finally {
+      polling = false;
     }
 
     if (active) {
@@ -353,6 +484,21 @@ export async function* streamContractEvents(
   const seenEventIds = new Map<string, number>();
   const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
   const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
+  const recoveryWindowMs = options.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
+  let lastProcessedLedger: number | undefined;
+
+  /**
+   * Deduplicate a batch of events against the seen set, returning only
+   * events not yet delivered and marking them as seen.
+   */
+  const deduplicateEvents = (events: ContractEvent[]): ContractEvent[] => {
+    return events.filter((event) => {
+      const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
+      if (!id || seenEventIds.has(id)) return false;
+      seenEventIds.set(id, Date.now());
+      return true;
+    });
+  };
 
   while (!signal?.aborted) {
     try {
@@ -363,6 +509,44 @@ export async function* streamContractEvents(
       const response = await requestFetch(endpoint.toString());
       if (response.ok) {
         const payload = await response.json();
+        // Extract the latest ledger sequence from either `records` or `_embedded.records`
+        const rawRecords: unknown[] = Array.isArray(payload.records)
+          ? payload.records
+          : isRecord(payload._embedded) && Array.isArray((payload._embedded as Record<string, unknown>).records)
+            ? (payload._embedded as Record<string, unknown>).records as unknown[]
+            : [];
+        const latestLedgerRecord = rawRecords[0];
+        const latestSequence = typeof (latestLedgerRecord as Record<string, unknown> | undefined)?.sequence === "number"
+          ? ((latestLedgerRecord as Record<string, unknown>).sequence as number)
+          : undefined;
+
+        // Recover missed events if we detect a gap (skip consecutive ledgers)
+        let recoveredEvents: ContractEvent[] = [];
+        if (
+          lastProcessedLedger !== undefined &&
+          latestSequence !== undefined &&
+          latestSequence > lastProcessedLedger + 1
+        ) {
+          const estimatedLedgerAgeMs = 5500;
+          const maxRecoveryLedgers = Math.ceil(recoveryWindowMs / estimatedLedgerAgeMs);
+          const fromLedger = Math.max(lastProcessedLedger, latestSequence - maxRecoveryLedgers);
+
+          if (fromLedger < latestSequence) {
+            try {
+              recoveredEvents = await recoverMissedEvents(
+                options.horizonUrl,
+                contractId,
+                fromLedger,
+                latestSequence,
+                requestFetch,
+                filter,
+              );
+            } catch {
+              // Recovery failure is non-fatal; continue stream
+            }
+          }
+        }
+
         const events = readRecords(payload)
           .filter((event) => {
             const eventContractId = typeof event.contractId === "string" ? event.contractId : "";
@@ -372,15 +556,17 @@ export async function* streamContractEvents(
 
         evictSeenEvents(seenEventIds, deduplicationTtlMs, deduplicationMaxSize);
 
-        const newEvents = events.filter((event) => {
-          const id = String(event.id ?? `${event.contractId ?? ""}:${event.name ?? ""}`);
-          if (!id || seenEventIds.has(id)) return false;
-          seenEventIds.set(id, Date.now());
-          return true;
-        });
+        const currentNewEvents = deduplicateEvents(events);
 
-        if (newEvents.length > 0) {
-          yield newEvents;
+        // Combine recovered + current events into a single yield (preserves ordering)
+        const dedupedRecovered = deduplicateEvents(recoveredEvents);
+        const combined = [...dedupedRecovered, ...currentNewEvents];
+        if (combined.length > 0) {
+          yield combined;
+        }
+
+        if (latestSequence !== undefined) {
+          lastProcessedLedger = latestSequence;
         }
       }
     } catch {
@@ -389,7 +575,7 @@ export async function* streamContractEvents(
 
     if (signal?.aborted) return;
 
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, intervalMs);
       signal?.addEventListener("abort", () => {
         clearTimeout(timer);

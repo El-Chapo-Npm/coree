@@ -45,6 +45,7 @@ export {
   subscribeContractEvents,
   queryContractEvents,
   streamContractEvents,
+  DEFAULT_RECOVERY_WINDOW_MS,
 } from "./subscribeContractEvents";
 export {
   getContractMethods,
