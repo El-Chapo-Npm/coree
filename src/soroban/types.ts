@@ -28,10 +28,45 @@ export interface ContractAbiTypeDescriptor {
   variants?: ContractAbiField[];
 }
 
+/**
+ * Visibility level of a contract method.
+ * - "public"   — callable by any account
+ * - "private"  — callable only from within the contract
+ * - "admin"    — callable only by designated admin accounts
+ * - "restricted" — callable only by accounts meeting authorization requirements
+ */
+export type ContractMethodVisibility =
+  | "public"
+  | "private"
+  | "admin"
+  | "restricted";
+
+/**
+ * Authorization requirements for a contract method.
+ * When present, `prepareCall()` validates that the invoking account
+ * satisfies these requirements before constructing the invocation.
+ */
+export interface ContractAuthorizationRequirement {
+  /** List of public keys authorized to call this method. */
+  requiredSigners?: string[];
+}
+
 export interface ContractMethod {
   name: string;
   inputs: ContractMethodInput[];
   returnType: string | null;
+  /**
+   * Optional visibility declaration. When absent, the method is treated as
+   * callable — existing contracts that do not expose visibility metadata
+   * remain compatible with the current behavior.
+   */
+  visibility?: ContractMethodVisibility;
+  /**
+   * Optional authorization requirements. Validated against the invoking
+   * public key when available. Not exposed in error messages to avoid
+   * leaking sensitive authorization data.
+   */
+  authorizationRequirements?: ContractAuthorizationRequirement;
 }
 
 export interface ContractAbiMethod {

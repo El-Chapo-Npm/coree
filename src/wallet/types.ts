@@ -210,3 +210,27 @@ export interface RecommendationCriteria {
   /** Return only wallets that support ALL of the listed features. */
   features?: WalletFeature[];
 }
+
+/**
+ * Pluggable persistence adapter for wallet state.
+ *
+ * Implementations handle serialising and restoring `WalletState` across page
+ * reloads or application restarts.  The core never touches browser storage
+ * directly — it delegates to the adapter provided in the client config.
+ *
+ * @example
+ * // localStorage adapter
+ * const adapter: PersistenceAdapter = {
+ *   save: (key, state) => localStorage.setItem(key, JSON.stringify(state)),
+ *   load: (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+ *   clear: (key) => localStorage.removeItem(key),
+ * };
+ */
+export interface PersistenceAdapter {
+  /** Persist wallet state under the given key. */
+  save(key: string, value: WalletState): void;
+  /** Load previously persisted wallet state, or `null` when absent. */
+  load(key: string): WalletState | null;
+  /** Remove persisted wallet state under the given key. */
+  clear(key: string): void;
+}

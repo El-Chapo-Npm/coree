@@ -11,6 +11,7 @@ import {
 import {
   addSignatureToEnvelope,
   connectWallet,
+  createLocalStorageAdapter,
   detectInstalledWallets,
   disconnectWallet,
   signTransaction,
