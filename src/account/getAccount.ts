@@ -6,6 +6,7 @@ import { profileOperation } from "../shared/metrics";
 import type { AccountInfo, AssetBalance } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+import { mapHorizonError } from "../shared/horizonErrorMapper";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -105,14 +106,20 @@ export function getAccount(
         balances,
       });
     } catch (cause) {
-      return err(
-        isNotFoundError(cause)
+      const mapped = mapHorizonError(cause, {
+        resource: "account",
+        fallbackCode: isNotFoundError(cause)
           ? SorokitErrorCode.ACCOUNT_NOT_FOUND
           : SorokitErrorCode.ACCOUNT_FETCH_FAILED,
-        isNotFoundError(cause)
+      });
+      return err(
+        mapped.code,
+        mapped.code === SorokitErrorCode.ACCOUNT_NOT_FOUND
           ? `Account not found: ${publicKey}`
-          : `Failed to fetch account: ${toMessage(cause)}`,
+          : mapped.message || `Failed to fetch account: ${toMessage(cause)}`,
         cause,
+        undefined,
+        mapped.recovery ? { recovery: mapped.recovery } : undefined,
       );
     }
     }),

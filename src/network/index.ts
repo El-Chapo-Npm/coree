@@ -148,3 +148,16 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./congestionMonitor";
+
+export {
+  EndpointPool,
+  configureEndpointFailover,
+  getEndpointPool,
+  createFailoverFetch,
+  validateEndpointList,
+} from "./endpointFailover";
+export type {
+  EndpointHealth,
+  EndpointFailoverOptions,
+  EndpointHealthCheckResult,
+} from "./endpointFailover";

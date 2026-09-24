@@ -13,6 +13,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import type { SorobanSimulator } from "../soroban/simulator";
+import { createFailoverFetch, getEndpointPool } from "../network/endpointFailover";
 
 let tracedFetch: typeof globalThis.fetch | undefined;
 let activeSimulator: SorobanSimulator | null = null;
@@ -49,17 +50,19 @@ export interface ServerOptions {
   signal?: AbortSignal | undefined;
 }
 
-/**
- * Wrap a fetch so that requests are aborted when the given signal fires,
- * composing with any traced fetch already configured.
- */
-function signalAwareFetch(signal: AbortSignal): NonNullable<typeof tracedFetch> {
+function endpointAwareFetch(
+  endpoint: string,
+  signal?: AbortSignal,
+): NonNullable<typeof tracedFetch> {
   const base = tracedFetch ?? globalThis.fetch.bind(globalThis);
-  return (input, init) =>
-    base(input, {
-      ...init,
-      signal: composeSignals(init?.signal ?? undefined, signal),
-    });
+  const pool = getEndpointPool(endpoint);
+  const fetcher = pool ? createFailoverFetch(pool, base) : base;
+  return signal
+    ? (input, init) => fetcher(input, {
+        ...init,
+        signal: composeSignals(init?.signal ?? undefined, signal),
+      })
+    : fetcher;
 }
 
 function composeSignals(
@@ -83,14 +86,12 @@ export function createHorizonServer(
   horizonUrl: string,
   options?: ServerOptions,
 ): Horizon.Server {
-  if (options?.signal) {
+  if (getEndpointPool(horizonUrl) || options?.signal || tracedFetch) {
     return new Horizon.Server(horizonUrl, {
-      fetch: signalAwareFetch(options.signal),
+      fetch: endpointAwareFetch(horizonUrl, options?.signal),
     } as any);
   }
-  return tracedFetch
-    ? new Horizon.Server(horizonUrl, { fetch: tracedFetch } as any)
-    : new Horizon.Server(horizonUrl);
+  return new Horizon.Server(horizonUrl);
 }
 
 /**
@@ -105,12 +106,10 @@ export function createSorobanServer(
   if (activeSimulator && rpcUrl === activeSimulator.rpc) {
     return activeSimulator;
   }
-  if (options?.signal) {
+  if (getEndpointPool(rpcUrl) || options?.signal || tracedFetch) {
     return new SorobanRpc.Server(rpcUrl, {
-      fetch: signalAwareFetch(options.signal),
+      fetch: endpointAwareFetch(rpcUrl, options?.signal),
     } as any);
   }
-  return tracedFetch
-    ? new SorobanRpc.Server(rpcUrl, { fetch: tracedFetch } as any)
-    : new SorobanRpc.Server(rpcUrl);
+  return new SorobanRpc.Server(rpcUrl);
 }
