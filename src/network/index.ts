@@ -144,6 +144,8 @@ export async function checkNetworkHealth(
 }
 
 export { CongestionMonitor, createCongestionMonitor } from "./congestionMonitor";
+export { ConnectionPool, createConnectionPool } from "./connectionPool";
+export type { ConnectionPoolConfig, ConnectionPoolStats } from "./connectionPool";
 export type {
   CongestionSample,
   CongestionMonitorOptions,

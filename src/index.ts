@@ -151,6 +151,8 @@ export {
   getNetwork,
   setNetwork,
   NETWORK_DEFAULTS,
+  ConnectionPool,
+  createConnectionPool,
 } from "./network";
 export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./network";
 export {
@@ -173,7 +175,10 @@ export type {
   NetworkStatusListener,
   NetworkSwitchUnsubscribe,
   NetworkSwitcherConfig,
+  ConnectionPoolConfig,
+  ConnectionPoolStats,
 } from "./network";
+export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export {
@@ -389,6 +394,7 @@ export type {
   SplitPaymentOptions,
 } from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
+export { streamTransactionsSSE, buildTransactionSSEUrl } from "./transaction/streamTransactionsSSE";
 export {
   buildPathPayment,
   checkTrustlines,
@@ -401,7 +407,6 @@ export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
 export { compose } from "./transaction/compose";
-export type { OperationStep, ComposedPipeline } from "./transaction/compose";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -823,13 +828,6 @@ export {
   subscribeContractEvents,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./soroban/subscribeContractEvents";
-export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
-export type {
-  IndexedContractEvent,
-  IndexedEventFilter,
-  IndexedEventPage,
-  IndexedEventQueryResult,
-} from "./soroban/eventIndex";
 export { analyzeCallOptimization } from "./soroban/callOptimization";
 export {
   captureContractState,
@@ -1059,6 +1057,10 @@ export {
   exportPerformanceMetrics,
   resetPerformanceMetrics,
   DEFAULT_MAX_METRIC_ENTRIES,
+  Counter,
+  Timer,
+  createCounter,
+  startTimer,
 } from "./shared/metrics";
 export type {
   MetricEntry,
