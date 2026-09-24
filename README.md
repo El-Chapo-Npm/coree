@@ -308,6 +308,21 @@ const adapter = createMockWalletAdapter();
 
 ---
 
+## Examples
+
+| Example | Shows |
+| --- | --- |
+| [`examples/router-swap`](examples/router-swap) | DEX swap: path discovery, quote, sign, submit, track |
+| [`examples/react-wallet-connect`](examples/react-wallet-connect) | React: connect wallet, fetch balances, build + sign + submit payment |
+| [`examples/vue-soroban`](examples/vue-soroban) | Vue 3: contract method selection, invoke with progress, account streaming |
+| [`examples/next-serverless`](examples/next-serverless) | Next.js + Lambda: server-side signing, batch account ops, Vercel/AWS handler |
+
+Examples are type-checked against the SDK source with `npm run typecheck:examples`.
+
+For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [docs/migration-guide.md](docs/migration-guide.md).
+
+---
+
 ## Design Principles
 
 **Stateless** — no internal state, no singleton, no side effects beyond network calls. Create as many clients as you need.
