@@ -1,6 +1,15 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
 import type { ContractResultType } from "./types";
 
+export {
+  classifySorobanRpcError,
+  extractRpcErrorMessage,
+  mapSorobanRpcError,
+  mapSorobanRpcResult,
+  mapRpcError,
+} from "./rpcErrorMapper";
+export type { SorobanRpcErrorPayload } from "./rpcErrorMapper";
+
 export type ContractDataType = ContractResultType;
 
 export interface ContractDataValidationIssue {

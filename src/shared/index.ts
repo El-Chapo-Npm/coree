@@ -30,3 +30,11 @@ export * from "./diagnostics";
 // validateStellarAddress, validatePublicKey, validateAssetCode, validateAssetIssuer,
 // validateAmount, and their associated constants.
 export * from "./validation";
+export {
+  validateStroop,
+  xlmToStroops,
+  stroopsToXlm,
+  STROOPS_PER_XLM,
+  MAX_STROOPS,
+  MAX_AMOUNT,
+} from "./amountValidation";

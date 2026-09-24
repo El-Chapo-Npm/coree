@@ -1,3 +1,5 @@
+export { AdaptiveRateLimiter, adaptiveRateLimiter, parseRetryAfter } from "./adaptiveRateLimiter";
+export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./adaptiveRateLimiter";
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";
