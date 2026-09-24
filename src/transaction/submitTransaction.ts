@@ -14,6 +14,7 @@ import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+import { mapHorizonError } from "../shared/horizonErrorMapper";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -169,6 +170,10 @@ export async function submitTransaction(
 
     return ok(result);
   } catch (cause) {
+    const mapped = mapHorizonError(cause, {
+      resource: "transaction",
+      fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
+    });
     if (txHash) {
       // A Horizon timeout leaves the transaction outcome unknown (it may
       // still make it into a ledger), so it is reported as pending timeout
@@ -180,9 +185,13 @@ export async function submitTransaction(
       });
     }
     return err(
-      SorokitErrorCode.TX_SUBMIT_FAILED,
-      describeSubmissionFailure(cause),
+      mapped.code,
+      mapped.code === SorokitErrorCode.TX_SUBMIT_FAILED
+        ? describeSubmissionFailure(cause)
+        : mapped.message,
       cause,
+      undefined,
+      mapped.recovery ? { recovery: mapped.recovery } : undefined,
     );
   }
 }

@@ -163,6 +163,35 @@ export type {
   NetworkSwitchUnsubscribe,
   NetworkSwitcherConfig,
 } from "./network";
+export {
+  EndpointPool,
+  configureEndpointFailover,
+  getEndpointPool,
+  createFailoverFetch,
+} from "./network";
+export type {
+  EndpointHealth,
+  EndpointFailoverOptions,
+  EndpointHealthCheckResult,
+} from "./network";
+export {
+  mapHorizonError,
+  horizonErrorResult,
+  getHorizonErrorStatus,
+} from "./shared/horizonErrorMapper";
+export type {
+  HorizonErrorResource,
+  HorizonErrorMappingOptions,
+} from "./shared/horizonErrorMapper";
+export {
+  xlmToStroops,
+  stroopsToXlm,
+  addAmounts,
+  subtractAmounts,
+  multiplyAmount,
+  divideAmount,
+  STROOPS_PER_XLM_NUMBER,
+} from "./shared/amounts";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export {

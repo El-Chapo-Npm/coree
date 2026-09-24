@@ -73,6 +73,7 @@ import {
   getTraceContext,
 } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
+import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
 import type { TraceContext } from "../shared/tracing";
 import {
   formatAddress,
@@ -175,6 +176,10 @@ export interface SorokitClientConfig {
   horizonUrl?: string;
   /** Override the default Soroban RPC URL */
   rpcUrl?: string;
+  /** Ordered Horizon endpoints: primary first, followed by backup endpoints. */
+  horizonEndpoints?: string[];
+  /** Ordered Soroban RPC endpoints: primary first, followed by backup endpoints. */
+  rpcEndpoints?: string[];
   /** Optional cache implementation — core is stateless by default */
   cache?: SorokitCache;
   /**
@@ -594,6 +599,19 @@ export function validateClientConfig(
     }
   }
 
+  for (const [name, endpoints] of [
+    ["horizonEndpoints", config.horizonEndpoints],
+    ["rpcEndpoints", config.rpcEndpoints],
+  ] as const) {
+    const endpointResult = validateEndpointList(endpoints);
+    if (endpointResult.status === "error") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `${name}: ${endpointResult.error.message}`,
+      );
+    }
+  }
+
   if (config.cache !== undefined && config.cache !== null) {
     const c = config.cache as any;
     if (
@@ -747,14 +765,26 @@ export function createSorokitClient(
   }
 
   const networkResult = resolveNetwork(config.network, {
-    horizonUrl: config.horizonUrl,
-    rpcUrl: config.rpcUrl,
+    horizonUrl: config.horizonEndpoints?.[0] ?? config.horizonUrl,
+    rpcUrl: config.rpcEndpoints?.[0] ?? config.rpcUrl,
   });
 
   if (networkResult.status === "error") return networkResult;
 
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
+  if (config.horizonEndpoints) {
+    configureEndpointFailover(
+      config.horizonEndpoints[0]!,
+      config.horizonEndpoints.slice(1),
+    );
+  }
+  if (config.rpcEndpoints) {
+    configureEndpointFailover(
+      config.rpcEndpoints[0]!,
+      config.rpcEndpoints.slice(1),
+    );
+  }
   const traceId = config.traceId ?? generateTraceId();
   const i18n = createI18n({
     ...(config.locale !== undefined ? { locale: config.locale } : {}),

@@ -67,6 +67,7 @@ export enum SorokitErrorCode {
   TX_BUILD_FAILED = "TX_BUILD_FAILED",
   TX_SIMULATE_FAILED = "TX_SIMULATE_FAILED",
   TX_SUBMIT_FAILED = "TX_SUBMIT_FAILED",
+  INVALID_TRANSACTION = "INVALID_TRANSACTION",
   TX_FETCH_FAILED = "TX_FETCH_FAILED",
   TX_NOT_FOUND = "TX_NOT_FOUND",
   TX_SEQUENCE_CONFLICT = "TX_SEQUENCE_CONFLICT",
@@ -142,7 +143,11 @@ export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   }
   if (code.startsWith("CONTRACT")) return SorokitErrorCategory.CONTRACT;
   if (code.startsWith("WALLET")) return SorokitErrorCategory.WALLET;
-  if (code.startsWith("TX_") || code.startsWith("ROUTER_"))
+  if (
+    code === SorokitErrorCode.INVALID_TRANSACTION ||
+    code.startsWith("TX_") ||
+    code.startsWith("ROUTER_")
+  )
     return SorokitErrorCategory.TRANSACTION;
   if (code.startsWith("ACCOUNT")) return SorokitErrorCategory.INTERNAL;
   return SorokitErrorCategory.UNKNOWN;
