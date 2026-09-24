@@ -21,6 +21,8 @@ import { getAccount } from "../account/getAccount";
 import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
+import { getOffers, getTrades } from "../account/dexActivity";
+import type { DexActivityOptions, DexActivityResult, OfferInfo, TradeInfo } from "../account/dexActivity";
 import { streamAccount } from "../account/streamAccount";
 import { setSponsor, removeSponsor } from "../account/sponsorship";
 import type { SponsorshipResult } from "../account/sponsorship";
@@ -45,6 +47,7 @@ import { streamTransactions } from "../transaction/streamTransactions";
 import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
 import { queryTransactionHistory } from "../transaction/queryTransactionHistory";
 import { validateDestination } from "../transaction/validateDestination";
+import { buildSetOptionsTransaction } from "../transaction/setOptions";
 import type {
   DestinationValidationResult,
   ValidateDestinationOptions,
@@ -127,6 +130,7 @@ import type {
   CreateClaimableBalanceParams,
   ClaimClaimableBalanceParams,
   BumpSequenceParams,
+  SetOptionsParams,
 } from "../transaction/types";
 import type {
   FeeEstimate,
@@ -358,6 +362,8 @@ export interface SorokitClient {
     ): SorokitResult<SponsorshipResult>;
     /** Build operations to remove sponsorship from an account */
     removeSponsor(account: string): SorokitResult<SponsorshipResult>;
+    getOffers(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<OfferInfo>>>;
+    getTrades(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<TradeInfo>>>;
   };
 
   readonly transaction: {
@@ -402,6 +408,11 @@ export interface SorokitClient {
     buildBumpSequence(
       sourcePublicKey: string,
       params: BumpSequenceParams,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<string>>;
+    buildSetOptions(
+      sourcePublicKey: string,
+      params: SetOptionsParams,
       timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
     /**
@@ -1169,6 +1180,22 @@ export function createSorokitClient(
       isValidContractId: (id) => isValidContractId(id),
       setSponsor: (account, sponsor) => applyTx(setSponsor(account, sponsor)),
       removeSponsor: (account) => applyTx(removeSponsor(account)),
+      getOffers: (publicKey, options, timeoutMs) =>
+        guard("account_get_offers", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "account.getOffers", params: { publicKey, options } },
+            () => getOffers(horizonUrl, publicKey, options),
+          ).then(applyTx),
+        ),
+      getTrades: (publicKey, options, timeoutMs) =>
+        guard("account_get_trades", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "account.getTrades", params: { publicKey, options } },
+            () => getTrades(horizonUrl, publicKey, options),
+          ).then(applyTx),
+        ),
     },
 
     transaction: {
@@ -1321,6 +1348,14 @@ export function createSorokitClient(
                 params,
               );
             },
+          ).then(applyTx),
+        ),
+      buildSetOptions: (sourcePublicKey, params, timeoutMs) =>
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "transaction.buildSetOptions", params: { sourcePublicKey, ...params } },
+            () => buildSetOptionsTransaction(horizonUrl, networkConfig, sourcePublicKey, params),
           ).then(applyTx),
         ),
       compose: (sourcePublicKey, options) => {

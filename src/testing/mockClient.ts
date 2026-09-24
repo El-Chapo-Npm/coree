@@ -177,6 +177,8 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       getAccountsBatch: vi.fn().mockResolvedValue(ok([ok(accountInfo)])),
       setSponsor: vi.fn().mockReturnValue(ok({ operations: [] })),
       removeSponsor: vi.fn().mockReturnValue(ok({ operations: [] })),
+      getOffers: vi.fn().mockResolvedValue(ok({ records: [], nextCursor: null, hasMore: false })),
+      getTrades: vi.fn().mockResolvedValue(ok({ records: [], nextCursor: null, hasMore: false })),
     },
 
     transaction: {
@@ -192,6 +194,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       }),
       validateDestination: vi.fn().mockResolvedValue(ok({ valid: true, exists: true, isFunded: true })),
       queryHistory: vi.fn().mockResolvedValue(ok({ transactions: [], total: 0, page: 1, pageSize: 10 })),
+      buildSetOptions: vi.fn().mockResolvedValue(ok("UNSIGNED_XDR_MOCK==")),
       exportHistory: vi.fn().mockResolvedValue(ok("")),
       exportTransactionHistory: vi.fn().mockResolvedValue(ok("")),
     },

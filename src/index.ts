@@ -237,6 +237,8 @@ export type {
 } from "./account/types";
 // Standalone account functions for use without a client instance
 export { getAccount } from "./account/getAccount";
+export { getOffers, getTrades } from "./account/dexActivity";
+export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./account/dexActivity";
 export { getBalances } from "./account/getBalances";
 export { getAssetBalances } from "./account/getAssetBalances";
 export {
@@ -587,6 +589,8 @@ export type {
 // Standalone transaction functions for use without a client instance
 export { submitTransaction } from "./transaction/submitTransaction";
 export { getTransactionStatus } from "./transaction/status";
+export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export type { SetOptionsParams } from "./transaction/types";
 
 // ─── Claimable balances (#543) ─────────────────────────────────────────────────
 export {
