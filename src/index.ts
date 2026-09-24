@@ -144,11 +144,22 @@ export type {
 } from "./shared/types";
 export {
   checkNetworkHealth,
+  AdaptiveRateLimiter,
+  adaptiveRateLimiter,
+  parseRetryAfter,
   NetworkSwitcher,
   getNetwork,
   setNetwork,
   NETWORK_DEFAULTS,
 } from "./network";
+export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./network";
+export {
+  MemoryCursorStore,
+  LocalStorageCursorStore,
+  PersistentEventDeduplicationStore,
+  createCursorStore,
+} from "./streaming/cursorStore";
+export type { CursorStore, EventDeduplicationStore } from "./streaming/cursorStore";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -600,7 +611,6 @@ export {
 export type { BumpSequenceParams } from "./transaction/types";
 
 // ─── Fluent multi-operation builder (#542) ────────────────────────────────────
-export { compose } from "./transaction/compose";
 export type {
   ComposeBuilder,
   ComposeOptions,
@@ -651,6 +661,14 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export {
+  classifySorobanRpcError,
+  extractRpcErrorMessage,
+  mapSorobanRpcError,
+  mapSorobanRpcResult,
+  mapRpcError,
+} from "./soroban/rpcErrorMapper";
+export type { SorobanRpcErrorPayload } from "./soroban/rpcErrorMapper";
 export type {
   ContractDataType,
   ContractDataValidationIssue,

@@ -226,16 +226,7 @@ export function validateAmount(amt: string | number): SorokitResult<string> {
     );
   }
 
-  const num = Number(trimmed);
-
-  if (!Number.isFinite(num)) {
-    return err(
-      SorokitErrorCode.VALIDATION,
-      `amount — "${trimmed}" is not a finite number. Fix: Provide a finite positive decimal number.`,
-    );
-  }
-
-  if (num <= 0) {
+  if (trimmed.startsWith("-") || /^0(?:\.0*)?$/.test(trimmed)) {
     return err(
       SorokitErrorCode.VALIDATION,
       `amount — "${trimmed}" must be greater than zero. Fix: Use a positive amount. Zero and negative values are not valid Stellar payment amounts.`,
