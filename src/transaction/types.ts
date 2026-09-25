@@ -250,6 +250,19 @@ export interface MultiSigSigner {
   weight: number;
 }
 
+export interface SetOptionsParams {
+  masterWeight?: number;
+  lowThreshold?: number;
+  medThreshold?: number;
+  highThreshold?: number;
+  signers?: MultiSigSigner[];
+  homeDomain?: string | null;
+  inflationDest?: string | null;
+  clearFlags?: number;
+  sequenceNumber?: string;
+  estimatedFee?: string;
+}
+
 /**
  * Parameters for building a multi-sig transaction envelope.
  */

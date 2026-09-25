@@ -223,6 +223,18 @@ for await (const result of client.transaction.stream(publicKey)) {
 }
 ```
 
+### Smaller imports
+
+The SDK also exposes module bundles for applications that only need one part of the API:
+
+```ts
+import { FreighterAdapter } from "sorokit-core/wallet";
+import { buildSetOptionsTransaction } from "sorokit-core/transaction";
+import { getOffers } from "sorokit-core/account";
+```
+
+These subpaths emit independent ESM, CommonJS, and declaration files while the root import remains backward compatible.
+
 ### `soroban`
 
 ```ts

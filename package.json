@@ -25,6 +25,26 @@
       "types": "./dist/account/index.d.ts",
       "import": "./dist/account/index.mjs",
       "require": "./dist/account/index.js"
+    },
+    "./transaction": {
+      "types": "./dist/transaction/index.d.ts",
+      "import": "./dist/transaction/index.mjs",
+      "require": "./dist/transaction/index.js"
+    },
+    "./soroban": {
+      "types": "./dist/soroban/index.d.ts",
+      "import": "./dist/soroban/index.mjs",
+      "require": "./dist/soroban/index.js"
+    },
+    "./network": {
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.mjs",
+      "require": "./dist/network/index.js"
+    },
+    "./shared": {
+      "types": "./dist/shared/index.d.ts",
+      "import": "./dist/shared/index.mjs",
+      "require": "./dist/shared/index.js"
     }
   },
   "files": [

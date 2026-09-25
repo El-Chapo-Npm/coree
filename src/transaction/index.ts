@@ -87,6 +87,8 @@ export {
   clearSequenceCache,
   validateMemoPolicy,
 } from "./buildTransaction";
+export { buildSetOptionsTransaction } from "./setOptions";
+export type { SetOptionsParams } from "./types";
 export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";
 export {
   evaluateTrustlineApproval,
