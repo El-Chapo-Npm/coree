@@ -223,6 +223,18 @@ for await (const result of client.transaction.stream(publicKey)) {
 }
 ```
 
+### Smaller imports
+
+The SDK also exposes module bundles for applications that only need one part of the API:
+
+```ts
+import { FreighterAdapter } from "sorokit-core/wallet";
+import { buildSetOptionsTransaction } from "sorokit-core/transaction";
+import { getOffers } from "sorokit-core/account";
+```
+
+These subpaths emit independent ESM, CommonJS, and declaration files while the root import remains backward compatible.
+
 ### `soroban`
 
 ```ts
@@ -407,6 +419,57 @@ ac.abort();
 
 The same pattern applies to `client.transaction.stream()`.
 
+### Real-time transaction SSE
+
+Transaction streams can use Horizon Server-Sent Events to avoid polling latency.
+The `sse` and `auto` transports fall back to polling when the endpoint is
+unavailable or closes before emitting an event:
+
+```ts
+for await (const result of client.transaction.stream(publicKey, {
+  transport: "auto",
+})) {
+  if (result.status === "ok") console.log(result.data.transactions);
+}
+```
+
+### HTTP connection pooling
+
+Configure a bounded per-origin pool before creating Horizon or Soroban servers.
+Default behavior is unchanged when no pool is configured:
+
+```ts
+import { createConnectionPool, setConnectionPool } from "sorokit-core";
+
+setConnectionPool(createConnectionPool({
+  maxPoolSize: 10,
+  keepAliveTimeoutMs: 30_000,
+  socketTimeoutMs: 30_000,
+}));
+```
+
+### Metrics and profiling
+
+Use `Counter` for event counts and `Timer` for operation latency. Timers write to
+the existing bounded metrics collector and can be exported with
+`getPerformanceMetrics()` or `exportPerformanceMetrics()`:
+
+```ts
+const cacheHits = new Counter("cache.hit");
+cacheHits.increment();
+const timer = startTimer("transaction.submit");
+try {
+  await submit();
+  timer.stop(true);
+} catch (error) {
+  timer.stop(false);
+  throw error;
+}
+```
+
+Applications that only need one subsystem can use the tree-shakeable
+`sorokit-core/wallet` and `sorokit-core/account` entry points.
+
 ---
 
 ## Networks
@@ -449,6 +512,21 @@ const adapter = createMockWalletAdapter();
 ```
 
 > Requires `vitest` as a peer dependency.
+
+---
+
+## Examples
+
+| Example | Shows |
+| --- | --- |
+| [`examples/router-swap`](examples/router-swap) | DEX swap: path discovery, quote, sign, submit, track |
+| [`examples/react-wallet-connect`](examples/react-wallet-connect) | React: connect wallet, fetch balances, build + sign + submit payment |
+| [`examples/vue-soroban`](examples/vue-soroban) | Vue 3: contract method selection, invoke with progress, account streaming |
+| [`examples/next-serverless`](examples/next-serverless) | Next.js + Lambda: server-side signing, batch account ops, Vercel/AWS handler |
+
+Examples are type-checked against the SDK source with `npm run typecheck:examples`.
+
+For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [docs/migration-guide.md](docs/migration-guide.md).
 
 ---
 

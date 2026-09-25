@@ -1,3 +1,5 @@
+export { AdaptiveRateLimiter, adaptiveRateLimiter, parseRetryAfter } from "./adaptiveRateLimiter";
+export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./adaptiveRateLimiter";
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";
@@ -142,6 +144,8 @@ export async function checkNetworkHealth(
 }
 
 export { CongestionMonitor, createCongestionMonitor } from "./congestionMonitor";
+export { ConnectionPool, createConnectionPool } from "./connectionPool";
+export type { ConnectionPoolConfig, ConnectionPoolStats } from "./connectionPool";
 export type {
   CongestionSample,
   CongestionMonitorOptions,

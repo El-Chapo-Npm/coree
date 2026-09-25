@@ -6,7 +6,6 @@ import {
   rpc as SorobanRpc,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
-import { toMessage } from "../shared";
 import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { SorokitResult } from "../shared/response";
 import { err, ok, SorokitErrorCode } from "../shared/response";
@@ -18,6 +17,7 @@ import type { ContractCallResult, ContractReadParams } from "./types";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { validatePublicKey } from "../shared/validation";
+import { mapSorobanRpcResult } from "./rpcErrorMapper";
 
 /**
  * Read (simulate) a Soroban contract view function — no signing required.
@@ -133,11 +133,7 @@ export async function readContract(
       const simResult = await rpc.simulateTransaction(tx);
 
       if (SorobanRpc.Api.isSimulationError(simResult)) {
-        return err(
-          SorokitErrorCode.CONTRACT_READ_FAILED,
-          `Contract simulation error: ${simResult.error}`,
-          simResult,
-        );
+        return mapSorobanRpcResult<ContractCallResult>(simResult);
       }
 
       if (!SorobanRpc.Api.isSimulationSuccess(simResult) || !simResult.result) {
@@ -157,11 +153,7 @@ export async function readContract(
 
       return ok(result);
     } catch (cause) {
-      return err(
-        SorokitErrorCode.CONTRACT_READ_FAILED,
-        `Failed to read contract: ${toMessage(cause)}`,
-        cause,
-      );
+      return mapSorobanRpcResult<ContractCallResult>(cause);
     }
   };
 

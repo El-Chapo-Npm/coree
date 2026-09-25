@@ -1,6 +1,15 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
 import type { ContractResultType } from "./types";
 
+export {
+  classifySorobanRpcError,
+  extractRpcErrorMessage,
+  mapSorobanRpcError,
+  mapSorobanRpcResult,
+  mapRpcError,
+} from "./rpcErrorMapper";
+export type { SorobanRpcErrorPayload } from "./rpcErrorMapper";
+
 export type ContractDataType = ContractResultType;
 
 export interface ContractDataValidationIssue {
@@ -207,17 +216,6 @@ export type {
   ContractEventFilter,
   ContractEventSubscriptionOptions,
 } from "./subscribeContractEvents";
-export {
-  InMemoryEventIndex,
-  indexContractEvent,
-  queryIndexedEvents,
-} from "./eventIndex";
-export type {
-  IndexedContractEvent,
-  IndexedEventFilter,
-  IndexedEventPage,
-  IndexedEventQueryResult,
-} from "./eventIndex";
 export { analyzeCallOptimization } from "./callOptimization";
 export type {
   CallOptimizationReport,

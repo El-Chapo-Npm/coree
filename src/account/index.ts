@@ -1,4 +1,6 @@
 export { getAccount } from "./getAccount";
+export { getOffers, getTrades } from "./dexActivity";
+export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./dexActivity";
 export { getAccountsBatch } from "./getAccountsBatch";
 export type {
   AccountBatchEntry,

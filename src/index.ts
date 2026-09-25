@@ -144,11 +144,24 @@ export type {
 } from "./shared/types";
 export {
   checkNetworkHealth,
+  AdaptiveRateLimiter,
+  adaptiveRateLimiter,
+  parseRetryAfter,
   NetworkSwitcher,
   getNetwork,
   setNetwork,
   NETWORK_DEFAULTS,
+  ConnectionPool,
+  createConnectionPool,
 } from "./network";
+export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./network";
+export {
+  MemoryCursorStore,
+  LocalStorageCursorStore,
+  PersistentEventDeduplicationStore,
+  createCursorStore,
+} from "./streaming/cursorStore";
+export type { CursorStore, EventDeduplicationStore } from "./streaming/cursorStore";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -162,36 +175,10 @@ export type {
   NetworkStatusListener,
   NetworkSwitchUnsubscribe,
   NetworkSwitcherConfig,
+  ConnectionPoolConfig,
+  ConnectionPoolStats,
 } from "./network";
-export {
-  EndpointPool,
-  configureEndpointFailover,
-  getEndpointPool,
-  createFailoverFetch,
-} from "./network";
-export type {
-  EndpointHealth,
-  EndpointFailoverOptions,
-  EndpointHealthCheckResult,
-} from "./network";
-export {
-  mapHorizonError,
-  horizonErrorResult,
-  getHorizonErrorStatus,
-} from "./shared/horizonErrorMapper";
-export type {
-  HorizonErrorResource,
-  HorizonErrorMappingOptions,
-} from "./shared/horizonErrorMapper";
-export {
-  xlmToStroops,
-  stroopsToXlm,
-  addAmounts,
-  subtractAmounts,
-  multiplyAmount,
-  divideAmount,
-  STROOPS_PER_XLM_NUMBER,
-} from "./shared/amounts";
+export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export {
@@ -250,6 +237,8 @@ export type {
 } from "./account/types";
 // Standalone account functions for use without a client instance
 export { getAccount } from "./account/getAccount";
+export { getOffers, getTrades } from "./account/dexActivity";
+export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./account/dexActivity";
 export { getBalances } from "./account/getBalances";
 export { getAssetBalances } from "./account/getAssetBalances";
 export {
@@ -407,6 +396,7 @@ export type {
   SplitPaymentOptions,
 } from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
+export { streamTransactionsSSE, buildTransactionSSEUrl } from "./transaction/streamTransactionsSSE";
 export {
   buildPathPayment,
   checkTrustlines,
@@ -419,7 +409,6 @@ export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
 export { compose } from "./transaction/compose";
-export type { OperationStep, ComposedPipeline } from "./transaction/compose";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -600,6 +589,8 @@ export type {
 // Standalone transaction functions for use without a client instance
 export { submitTransaction } from "./transaction/submitTransaction";
 export { getTransactionStatus } from "./transaction/status";
+export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export type { SetOptionsParams } from "./transaction/types";
 
 // ─── Claimable balances (#543) ─────────────────────────────────────────────────
 export {
@@ -629,7 +620,6 @@ export {
 export type { BumpSequenceParams } from "./transaction/types";
 
 // ─── Fluent multi-operation builder (#542) ────────────────────────────────────
-export { compose } from "./transaction/compose";
 export type {
   ComposeBuilder,
   ComposeOptions,
@@ -680,6 +670,14 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export {
+  classifySorobanRpcError,
+  extractRpcErrorMessage,
+  mapSorobanRpcError,
+  mapSorobanRpcResult,
+  mapRpcError,
+} from "./soroban/rpcErrorMapper";
+export type { SorobanRpcErrorPayload } from "./soroban/rpcErrorMapper";
 export type {
   ContractDataType,
   ContractDataValidationIssue,
@@ -834,13 +832,6 @@ export {
   subscribeContractEvents,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./soroban/subscribeContractEvents";
-export { InMemoryEventIndex, indexContractEvent, queryIndexedEvents } from "./soroban/eventIndex";
-export type {
-  IndexedContractEvent,
-  IndexedEventFilter,
-  IndexedEventPage,
-  IndexedEventQueryResult,
-} from "./soroban/eventIndex";
 export { analyzeCallOptimization } from "./soroban/callOptimization";
 export {
   captureContractState,
@@ -1070,6 +1061,10 @@ export {
   exportPerformanceMetrics,
   resetPerformanceMetrics,
   DEFAULT_MAX_METRIC_ENTRIES,
+  Counter,
+  Timer,
+  createCounter,
+  startTimer,
 } from "./shared/metrics";
 export type {
   MetricEntry,

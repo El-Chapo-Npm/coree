@@ -79,6 +79,12 @@ export enum SorokitErrorCode {
   CONTRACT_READ_FAILED = "CONTRACT_READ_FAILED",
   CONTRACT_PREPARE_FAILED = "CONTRACT_PREPARE_FAILED",
   CONTRACT_SIMULATE_FAILED = "CONTRACT_SIMULATE_FAILED",
+  SOROBAN_SIMULATION_FAILED = "SOROBAN_SIMULATION_FAILED",
+  INSUFFICIENT_FEE = "INSUFFICIENT_FEE",
+  INVALID_AUTH = "INVALID_AUTH",
+  RESOURCE_LIMIT_EXCEEDED = "RESOURCE_LIMIT_EXCEEDED",
+  XDR_INVALID = "XDR_INVALID",
+  RATE_LIMITED = "RATE_LIMITED",
   NETWORK_ERROR = "NETWORK_ERROR",
   INVALID_NETWORK = "INVALID_NETWORK",
   SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE",
@@ -141,7 +147,15 @@ export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   ) {
     return SorokitErrorCategory.NETWORK;
   }
-  if (code.startsWith("CONTRACT")) return SorokitErrorCategory.CONTRACT;
+  if (
+    code.startsWith("CONTRACT") ||
+    code === SorokitErrorCode.SOROBAN_SIMULATION_FAILED ||
+    code === SorokitErrorCode.INSUFFICIENT_FEE ||
+    code === SorokitErrorCode.INVALID_AUTH ||
+    code === SorokitErrorCode.RESOURCE_LIMIT_EXCEEDED ||
+    code === SorokitErrorCode.XDR_INVALID
+  ) return SorokitErrorCategory.CONTRACT;
+  if (code === SorokitErrorCode.RATE_LIMITED) return SorokitErrorCategory.NETWORK;
   if (code.startsWith("WALLET")) return SorokitErrorCategory.WALLET;
   if (
     code === SorokitErrorCode.INVALID_TRANSACTION ||
